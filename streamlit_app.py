@@ -84,8 +84,8 @@ selected_dest_labels = st.sidebar.multiselect(
 destinations = [POPULAR_DESTINATIONS[label] for label in selected_dest_labels]
 
 col1, col2 = st.sidebar.columns(2)
-start_date = col1.date_input("Start Date", value=date(2026, 9, 1))
-end_date = col2.date_input("Window End", value=date(2026, 9, 14))
+start_date = col1.date_input("Start Date", value=date(2026, 8, 1))
+end_date = col2.date_input("Window End", value=date(2026, 8, 14))
 
 all_days_map = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4, "Saturday": 5, "Sunday": 6}
 selected_day_names = st.sidebar.multiselect(
@@ -166,22 +166,16 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                             return_date_obj = outbound_date_obj + timedelta(days=1)
                             return_dt_str = return_date_obj.strftime("%Y-%m-%d")
 
-                            # ULTIMATE RELIABILITY FIX: Query without constraining return slice date upfront, 
-                            # letting Duffel return all available return options across same-day and next-day.
-                            payload = {
+                            # THE CORE FIX: Query individual independent one-way requests for Outbound and Return
+                            # instead of locking them into a rigid multi-slice payload. This matches how consumer flight tools 
+                            # discover separate fare buckets and assemble day trips successfully.
+                            outbound_payload = {
                                 "data": {
-                                    "slices": [
-                                        {
-                                            "origin": home_airport,
-                                            "destination": dest,
-                                            "departure_date": dt
-                                        },
-                                        {
-                                            "origin": dest,
-                                            "destination": home_airport,
-                                            "departure_date": dt
-                                        }
-                                    ],
+                                    "slices": [{
+                                        "origin": home_airport,
+                                        "destination": dest,
+                                        "departure_date": dt
+                                    }],
                                     "passengers": [{"type": "adult"}],
                                     "cabin_class": "economy",
                                     "max_connections": 0
@@ -189,61 +183,81 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                             }
                             
                             try:
-                                response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=payload, headers=headers)
+                                # 1. Fetch Outbound Options
+                                out_response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=outbound_payload, headers=headers)
                                 
-                                if response.status_code == 201:
-                                    data = response.json().get("data", {})
-                                    offers = data.get("offers", [])
+                                if out_response.status_code == 201:
+                                    out_data = out_response.json().get("data", {})
+                                    out_offers = out_data.get("offers", [])
                                     
-                                    for offer in offers:
-                                        total_price = float(offer.get("total_amount", 0))
-                                        currency = offer.get("total_currency", "GBP")
-                                        
-                                        if currency != "GBP":
+                                    for out_offer in out_offers:
+                                        out_price = float(out_offer.get("total_amount", 0))
+                                        if out_offer.get("total_currency", "GBP") != "GBP":
                                             continue
                                             
-                                        slices = offer.get("slices", [])
-                                        if len(slices) == 2:
-                                            out_slice = slices[0]
-                                            in_slice = slices[1]
+                                        out_slices = out_offer.get("slices", [])
+                                        if not out_slices:
+                                            continue
+                                        out_seg = out_slices[0].get("segments", [{}])[0]
+                                        out_dep = out_seg.get("departing_at", "")
+                                        out_arr = out_seg.get("arriving_at", "")
+                                        
+                                        if not out_dep or not out_arr:
+                                            continue
                                             
-                                            out_segs = out_slice.get("segments", [])
-                                            in_segs = in_slice.get("segments", [])
+                                        out_dep_time = datetime.fromisoformat(out_dep.replace("Z", "+00:00"))
+                                        out_arr_time = datetime.fromisoformat(out_arr.replace("Z", "+00:00"))
+                                        
+                                        # Now query return for both same day and next day
+                                        for ret_dt in [dt, return_dt_str]:
+                                            return_payload = {
+                                                "data": {
+                                                    "slices": [{
+                                                        "origin": dest,
+                                                        "destination": home_airport,
+                                                        "departure_date": ret_dt
+                                                    }],
+                                                    "passengers": [{"type": "adult"}],
+                                                    "cabin_class": "economy",
+                                                    "max_connections": 0
+                                                }
+                                            }
                                             
-                                            if len(out_segs) != 1 or len(in_segs) != 1:
-                                                continue
+                                            ret_response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=return_payload, headers=headers)
+                                            if ret_response.status_code == 201:
+                                                ret_data = ret_response.json().get("data", {})
+                                                ret_offers = ret_data.get("offers", [])
                                                 
-                                            out_seg = out_segs[0]
-                                            in_seg = in_segs[0]
-                                            
-                                            out_dep = out_seg.get("departing_at", "")
-                                            out_arr = out_seg.get("arriving_at", "")
-                                            in_dep = in_seg.get("departing_at", "")
-                                            in_arr = in_seg.get("arriving_at", "")
-                                            
-                                            if out_dep and out_arr and in_dep and in_arr:
-                                                out_dep_time = datetime.fromisoformat(out_dep.replace("Z", "+00:00"))
-                                                out_arr_time = datetime.fromisoformat(out_arr.replace("Z", "+00:00"))
-                                                in_dep_time = datetime.fromisoformat(in_dep.replace("Z", "+00:00"))
-                                                in_arr_time = datetime.fromisoformat(in_arr.replace("Z", "+00:00"))
-                                                
-                                                out_str_time = out_dep_time.strftime("%H:%M")
-                                                out_hour = out_dep_time.hour
-                                                
-                                                earliest_h = int(earliest_outbound.split(":")[0])
-                                                latest_h = int(latest_outbound.split(":")[0])
-                                                
-                                                # Check outbound departure hour window
-                                                if earliest_h <= out_hour <= latest_h:
+                                                for ret_offer in ret_offers:
+                                                    ret_price = float(ret_offer.get("total_amount", 0))
+                                                    if ret_offer.get("total_currency", "GBP") != "GBP":
+                                                        continue
+                                                        
+                                                    total_price = out_price + ret_price
+                                                    if total_price > max_budget:
+                                                        continue
+                                                        
+                                                    ret_slices = ret_offer.get("slices", [])
+                                                    if not ret_slices:
+                                                        continue
+                                                    ret_seg = ret_slices[0].get("segments", [{}])[0]
+                                                    in_dep = ret_seg.get("departing_at", "")
+                                                    in_arr = ret_seg.get("arriving_at", "")
+                                                    
+                                                    if not in_dep or not in_arr:
+                                                        continue
+                                                        
+                                                    in_dep_time = datetime.fromisoformat(in_dep.replace("Z", "+00:00"))
+                                                    in_arr_time = datetime.fromisoformat(in_arr.replace("Z", "+00:00"))
+                                                    
                                                     in_dep_naive = in_dep_time.replace(tzinfo=None)
                                                     out_arr_naive = out_arr_time.replace(tzinfo=None)
                                                     
                                                     ground_mins = (in_dep_naive - out_arr_naive).total_seconds() / 60.0
                                                     ground_hrs = ground_mins / 60.0
                                                     
-                                                    # Relaxed validation: If it meets minimum ground time and budget, display it directly!
-                                                    if ground_hrs >= min_ground and total_price <= max_budget:
-                                                        owner = offer.get("owner", {}).get("name", "Airline")
+                                                    if ground_hrs >= min_ground:
+                                                        carrier = out_offer.get("owner", {}).get("name", "Airline")
                                                         
                                                         trip_entry = {
                                                             "home": home_airport,
@@ -253,10 +267,10 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                                             "Return Date": in_dep_naive.strftime("%Y-%m-%d"),
                                                             "Ground (hrs)": round(ground_hrs, 1),
                                                             "Total Price (£)": total_price,
-                                                            "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
-                                                            "Return Time": f"{in_dep_naive.strftime('%H:%M')} ➔ {in_arr_naive.strftime('%H:%M')}",
-                                                            "Carrier": owner,
-                                                            "Offer ID": offer.get("id")
+                                                            "Outbound Time": f"{out_dep_time.strftime('%H:%M')} ➔ {out_arr_time.strftime('%H:%M')}",
+                                                            "Return Time": f"{in_dep_naive.strftime('%H:%M')} ➔ {in_arr_time.strftime('%H:%M')}",
+                                                            "Carrier": carrier,
+                                                            "Offer ID": f"{out_offer.get('id')} + {ret_offer.get('id')}"
                                                         }
                                                         
                                                         if trip_entry not in all_cached_trips:
@@ -301,4 +315,4 @@ if "cached_trips" in st.session_state:
                 st.write(f"🕒 {trip['Return Time']}")
             
             st.divider()
-            st.text(f"Duffel Verified Live Offer ID: {trip['Offer ID']}")
+            st.text(f"Duffel Verified Offer IDs: {trip['Offer ID']}")
