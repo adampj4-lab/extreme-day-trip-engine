@@ -3,6 +3,7 @@ import requests
 import time
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import urllib.parse
 
 st.set_page_config(page_title="Extreme Day Trip Engine", layout="wide")
 
@@ -81,7 +82,7 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                 in_payload_next = {"data": {"slices": [{"origin": dest, "destination": home, "departure_date": next_date_str}], "passengers": [{"type": "adult"}], "cabin_class": "economy"}}
                 
                 try:
-                    time.sleep(0.05) # Gentle pacing to prevent rate-limit dropping
+                    time.sleep(0.05)
                     out_resp = requests.post(url, headers=headers, json=out_payload, timeout=20)
                     in_resp_same = requests.post(url, headers=headers, json=in_payload_same, timeout=20)
                     in_resp_next = requests.post(url, headers=headers, json=in_payload_next, timeout=20)
@@ -102,6 +103,8 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                         out_dep = datetime.fromisoformat(out_seg["departing_at"])
                         out_arr = datetime.fromisoformat(out_seg["arriving_at"])
                         out_dur = (out_arr - out_dep).total_seconds() / 3600
+                        out_carrier = out_seg.get("marketing_carrier", {}).get("name", "Airline")
+                        out_flight_num = f"{out_seg.get('marketing_carrier', {}).get('iata_code', '')}{out_seg.get('flight_number', '')}"
                         
                         min_out = datetime.strptime(earliest_outbound, "%H:%M").time()
                         max_out = datetime.strptime(latest_outbound, "%H:%M").time()
@@ -116,6 +119,8 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                             in_dep = datetime.fromisoformat(in_seg["departing_at"])
                             in_arr = datetime.fromisoformat(in_seg["arriving_at"])
                             in_dur = (in_arr - in_dep).total_seconds() / 3600
+                            in_carrier = in_seg.get("marketing_carrier", {}).get("name", "Airline")
+                            in_flight_num = f"{in_seg.get('marketing_carrier', {}).get('iata_code', '')}{in_seg.get('flight_number', '')}"
                             
                             if in_dur > max_flight:
                                 continue
@@ -142,18 +147,21 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                                 continue
                             
                             local_trips.append({
+                                "home": home,
+                                "dest": dest,
                                 "Route": f"{home} ➔ {dest} ➔ {home}",
                                 "Outbound Date": flight_date,
                                 "Return Date": in_flight_date_str,
                                 "Ground (hrs)": round(ground_hours, 1),
                                 "Total Price (£)": round(total_price, 2),
-                                "Outbound": f"{out_dep.strftime('%H:%M')} ➔ {out_arr.strftime('%H:%M')}",
-                                "Return": f"{in_dep.strftime('%H:%M')} ➔ {in_arr.strftime('%H:%M')}"
+                                "Outbound Time": f"{out_dep.strftime('%H:%M')} ➔ {out_arr.strftime('%H:%M')}",
+                                "Return Time": f"{in_dep.strftime('%H:%M')} ➔ {in_arr.strftime('%H:%M')}",
+                                "Out Carrier": f"{out_carrier} ({out_flight_num})",
+                                "In Carrier": f"{in_carrier} ({in_flight_num})"
                             })
                 return local_trips
 
             tasks = [(h, d, dt) for h in HOMES for d in DESTINATIONS for dt in dates_to_check]
-            # Lower max_workers to 4 to prevent overwhelming Duffel's connection limits on wide searches
             with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = [executor.submit(fetch_route_offers, h, d, dt) for h, d, dt in tasks]
                 for future in as_completed(futures):
@@ -161,7 +169,7 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
             
             unique_trips = {}
             for t in paired_trips:
-                key = (t["Route"], t["Outbound Date"], t["Return Date"], t["Outbound"], t["Return"])
+                key = (t["Route"], t["Outbound Date"], t["Return Date"], t["Outbound Time"], t["Return Time"])
                 if key not in unique_trips or t["Total Price (£)"] < unique_trips[key]["Total Price (£)"]:
                     unique_trips[key] = t
             paired_trips = list(unique_trips.values())
@@ -172,5 +180,37 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                 paired_trips.sort(key=lambda x: x["Total Price (£)"])
                 
             st.success(f"Found {len(paired_trips)} unique matching trips!")
-            if paired_trips:
-                st.dataframe(paired_trips, use_container_width=True)
+            
+            # --- RENDER CARD LAYOUT ---
+            for trip in paired_trips:
+                with st.container(border=True):
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        st.markdown(f"### ✈️ {trip['Route']}")
+                        st.caption(f"⏱️ **{trip['Ground (hrs)'])} hours** on the ground")
+                    with c2:
+                        st.markdown(f"### £{trip['Total Price (£)]']}")
+                    
+                    st.divider()
+                    
+                    col_out, col_in = st.columns(2)
+                    with col_out:
+                        st.markdown(f"**Outbound ({trip['Outbound Date']})**")
+                        st.write(f"🕒 {trip['Outbound Time']}")
+                        st.text(f"Carrier: {trip['Out Carrier']}")
+                    with col_in:
+                        st.markdown(f"**Return ({trip['Return Date']})**")
+                        st.write(f"🕒 {trip['Return Time']}")
+                        st.text(f"Carrier: {trip['In Carrier']}")
+                    
+                    st.divider()
+                    
+                    # Generate Deep Links
+                    gf_url = f"https://www.google.com/travel/flights?q=Flights%20from%20{trip['home']}%20to%20{trip['dest']}%20on%20{trip['Outbound Date']}%20returning%20on%20{trip['Return Date']}"
+                    sk_url = f"https://www.skyscanner.net/transport/flights/{trip['home'].lower()}/{trip['dest'].lower()}/{trip['Outbound Date'].replace('-','')}/{trip['Return Date'].replace('-','')}/"
+                    
+                    b1, b2 = st.columns(2)
+                    with b1:
+                        st.link_button("🌐 Search on Google Flights", gf_url, use_container_width=True)
+                    with b2:
+                        st.link_button("✈️ Search on Skyscanner", sk_url, use_container_width=True)
