@@ -82,9 +82,9 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                 in_payload_next = {"data": {"slices": [{"origin": dest, "destination": home, "departure_date": next_date_str}], "passengers": [{"type": "adult"}], "cabin_class": "economy"}}
                 
                 try:
-                    out_resp = requests.post(url, headers=headers, json=out_payload, timeout=10)
-                    in_resp_same = requests.post(url, headers=headers, json=in_payload_same, timeout=10)
-                    in_resp_next = requests.post(url, headers=headers, json=in_payload_next, timeout=10)
+                    out_resp = requests.post(url, headers=headers, json=out_payload, timeout=20)
+                    in_resp_same = requests.post(url, headers=headers, json=in_payload_same, timeout=20)
+                    in_resp_next = requests.post(url, headers=headers, json=in_payload_next, timeout=20)
                 except:
                     return []
                 
