@@ -12,7 +12,6 @@ duffel_token = st.sidebar.text_input("Duffel Access Token", type="password", hel
 
 st.sidebar.header("Trip Parameters")
 
-# Hierarchical Airport Selection: Alphabetized Country & Airport Lists (including Ibiza)
 AIRPORT_HIERARCHY = {
     "Denmark": {
         "Copenhagen (CPH)": "CPH"
@@ -56,17 +55,14 @@ AIRPORT_HIERARCHY = {
     }
 }
 
-# Sort countries alphabetically
 sorted_countries = sorted(AIRPORT_HIERARCHY.keys())
 selected_country = st.sidebar.selectbox("Home Country", sorted_countries, index=sorted_countries.index("United Kingdom"))
 
-# Sort airports alphabetically within the selected country
 available_airports = AIRPORT_HIERARCHY[selected_country]
 sorted_airport_labels = sorted(available_airports.keys())
 selected_airport_label = st.sidebar.selectbox("Home Airport", sorted_airport_labels)
 home_airport = available_airports[selected_airport_label]
 
-# Clean up destination input layout: Multi-select multiselect including Ibiza
 POPULAR_DESTINATIONS = {
     "Amsterdam (AMS)": "AMS",
     "Alicante (ALC)": "ALC",
@@ -87,7 +83,6 @@ selected_dest_labels = st.sidebar.multiselect(
 )
 destinations = [POPULAR_DESTINATIONS[label] for label in selected_dest_labels]
 
-# Side-by-side date inputs properly aligned
 col1, col2 = st.sidebar.columns(2)
 start_date_str = col1.text_input("Start Date", "2026-08-01")
 end_date_str = col2.text_input("Window End", "2026-08-14")
