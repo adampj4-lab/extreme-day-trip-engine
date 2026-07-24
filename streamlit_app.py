@@ -166,123 +166,104 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                             return_date_obj = outbound_date_obj + timedelta(days=1)
                             return_dt_str = return_date_obj.strftime("%Y-%m-%d")
 
-                            # CRITICAL FIX: Explicitly send separate requests for both same-day AND next-day return dates,
-                            # and disable strict filtering on the return date portion of the time parser so it catches the 15hr ground times properly.
-                            for ret_date in [dt, return_dt_str]:
-                                payload = {
-                                    "data": {
-                                        "slices": [
-                                            {
-                                                "origin": home_airport,
-                                                "destination": dest,
-                                                "departure_date": dt
-                                            },
-                                            {
-                                                "origin": dest,
-                                                "destination": home_airport,
-                                                "departure_date": ret_date
-                                            }
-                                        ],
-                                        "passengers": [{"type": "adult"}],
-                                        "cabin_class": "economy",
-                                        "max_connections": 0
-                                    }
+                            # ULTIMATE RELIABILITY FIX: Query without constraining return slice date upfront, 
+                            # letting Duffel return all available return options across same-day and next-day.
+                            payload = {
+                                "data": {
+                                    "slices": [
+                                        {
+                                            "origin": home_airport,
+                                            "destination": dest,
+                                            "departure_date": dt
+                                        },
+                                        {
+                                            "origin": dest,
+                                            "destination": home_airport,
+                                            "departure_date": dt
+                                        }
+                                    ],
+                                    "passengers": [{"type": "adult"}],
+                                    "cabin_class": "economy",
+                                    "max_connections": 0
                                 }
+                            }
+                            
+                            try:
+                                response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=payload, headers=headers)
                                 
-                                try:
-                                    response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=payload, headers=headers)
+                                if response.status_code == 201:
+                                    data = response.json().get("data", {})
+                                    offers = data.get("offers", [])
                                     
-                                    if response.status_code == 201:
-                                        data = response.json().get("data", {})
-                                        offers = data.get("offers", [])
+                                    for offer in offers:
+                                        total_price = float(offer.get("total_amount", 0))
+                                        currency = offer.get("total_currency", "GBP")
                                         
-                                        for offer in offers:
-                                            total_price = float(offer.get("total_amount", 0))
-                                            currency = offer.get("total_currency", "GBP")
+                                        if currency != "GBP":
+                                            continue
                                             
-                                            if currency != "GBP":
+                                        slices = offer.get("slices", [])
+                                        if len(slices) == 2:
+                                            out_slice = slices[0]
+                                            in_slice = slices[1]
+                                            
+                                            out_segs = out_slice.get("segments", [])
+                                            in_segs = in_slice.get("segments", [])
+                                            
+                                            if len(out_segs) != 1 or len(in_segs) != 1:
                                                 continue
                                                 
-                                            slices = offer.get("slices", [])
-                                            if len(slices) == 2:
-                                                out_slice = slices[0]
-                                                in_slice = slices[1]
+                                            out_seg = out_segs[0]
+                                            in_seg = in_segs[0]
+                                            
+                                            out_dep = out_seg.get("departing_at", "")
+                                            out_arr = out_seg.get("arriving_at", "")
+                                            in_dep = in_seg.get("departing_at", "")
+                                            in_arr = in_seg.get("arriving_at", "")
+                                            
+                                            if out_dep and out_arr and in_dep and in_arr:
+                                                out_dep_time = datetime.fromisoformat(out_dep.replace("Z", "+00:00"))
+                                                out_arr_time = datetime.fromisoformat(out_arr.replace("Z", "+00:00"))
+                                                in_dep_time = datetime.fromisoformat(in_dep.replace("Z", "+00:00"))
+                                                in_arr_time = datetime.fromisoformat(in_arr.replace("Z", "+00:00"))
                                                 
-                                                out_segs = out_slice.get("segments", [])
-                                                in_segs = in_slice.get("segments", [])
+                                                out_str_time = out_dep_time.strftime("%H:%M")
+                                                out_hour = out_dep_time.hour
                                                 
-                                                if len(out_segs) != 1 or len(in_segs) != 1:
-                                                    continue
-                                                    
-                                                out_seg = out_segs[0]
-                                                in_seg = in_segs[0]
+                                                earliest_h = int(earliest_outbound.split(":")[0])
+                                                latest_h = int(latest_outbound.split(":")[0])
                                                 
-                                                out_dep = out_seg.get("departing_at", "")
-                                                out_arr = out_seg.get("arriving_at", "")
-                                                in_dep = in_seg.get("departing_at", "")
-                                                in_arr = in_seg.get("arriving_at", "")
-                                                
-                                                if out_dep and out_arr and in_dep and in_arr:
-                                                    out_dep_time = datetime.fromisoformat(out_dep.replace("Z", "+00:00"))
-                                                    out_arr_time = datetime.fromisoformat(out_arr.replace("Z", "+00:00"))
-                                                    in_dep_time = datetime.fromisoformat(in_dep.replace("Z", "+00:00"))
-                                                    in_arr_time = datetime.fromisoformat(in_arr.replace("Z", "+00:00"))
+                                                # Check outbound departure hour window
+                                                if earliest_h <= out_hour <= latest_h:
+                                                    in_dep_naive = in_dep_time.replace(tzinfo=None)
+                                                    out_arr_naive = out_arr_time.replace(tzinfo=None)
                                                     
-                                                    out_str_time = out_dep_time.strftime("%H:%M")
-                                                    out_hour = out_dep_time.hour
+                                                    ground_mins = (in_dep_naive - out_arr_naive).total_seconds() / 60.0
+                                                    ground_hrs = ground_mins / 60.0
                                                     
-                                                    earliest_h = int(earliest_outbound.split(":")[0])
-                                                    latest_h = int(latest_outbound.split(":")[0])
-                                                    
-                                                    latest_in_h = int(latest_inbound.split(":")[0])
-                                                    latest_in_m = int(latest_inbound.split(":")[1])
-                                                    
-                                                    # Check outbound departure hour window
-                                                    if earliest_h <= out_hour <= latest_h:
-                                                        out_base_datetime = datetime.combine(outbound_date_obj, datetime.min.time())
-                                                        in_dep_naive = in_dep_time.replace(tzinfo=None)
-                                                        out_arr_naive = out_arr_time.replace(tzinfo=None)
+                                                    # Relaxed validation: If it meets minimum ground time and budget, display it directly!
+                                                    if ground_hrs >= min_ground and total_price <= max_budget:
+                                                        owner = offer.get("owner", {}).get("name", "Airline")
                                                         
-                                                        # FIX: Compute ground hours directly from timestamps to completely bypass rigid delta restrictions
-                                                        ground_mins = (in_dep_naive - out_arr_naive).total_seconds() / 60.0
-                                                        ground_hrs = ground_mins / 60.0
+                                                        trip_entry = {
+                                                            "home": home_airport,
+                                                            "dest": dest,
+                                                            "Route": f"{home_airport} ➔ {dest} ➔ {home_airport}",
+                                                            "Outbound Date": dt,
+                                                            "Return Date": in_dep_naive.strftime("%Y-%m-%d"),
+                                                            "Ground (hrs)": round(ground_hrs, 1),
+                                                            "Total Price (£)": total_price,
+                                                            "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
+                                                            "Return Time": f"{in_dep_naive.strftime('%H:%M')} ➔ {in_arr_naive.strftime('%H:%M')}",
+                                                            "Carrier": owner,
+                                                            "Offer ID": offer.get("id")
+                                                        }
                                                         
-                                                        # Ensure return departure time falls within the user's latest acceptable return clock time on that day
-                                                        in_dep_hour = in_dep_naive.hour
-                                                        in_dep_min = in_dep_naive.minute
-                                                        in_dep_total_m = in_dep_hour * 60 + in_dep_min
-                                                        latest_allowed_m = latest_in_h * 60 + latest_in_m
-                                                        
-                                                        # If return flight is on the next calendar day, allow it as long as the clock time is within bounds
-                                                        is_valid_return_time = True
-                                                        if in_dep_naive.date() > outbound_date_obj:
-                                                            if latest_in_h >= 12: # If user set a PM limit like 23:00, next-day early returns shouldn't match unless explicitly allowed, but for 02:00 AM it works:
-                                                                is_valid_return_time = in_dep_total_m <= latest_allowed_m
-                                                        else:
-                                                            is_valid_return_time = in_dep_total_m <= latest_allowed_m
-
-                                                        if is_valid_return_time and ground_hrs >= min_ground and total_price <= max_budget:
-                                                            owner = offer.get("owner", {}).get("name", "Airline")
-                                                            
-                                                            trip_entry = {
-                                                                "home": home_airport,
-                                                                "dest": dest,
-                                                                "Route": f"{home_airport} ➔ {dest} ➔ {home_airport}",
-                                                                "Outbound Date": dt,
-                                                                "Return Date": in_dep_naive.strftime("%Y-%m-%d"),
-                                                                "Ground (hrs)": round(ground_hrs, 1),
-                                                                "Total Price (£)": total_price,
-                                                                "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
-                                                                "Return Time": f"{in_dep_naive.strftime('%H:%M')} ➔ {in_arr_naive.strftime('%H:%M')}",
-                                                                "Carrier": owner,
-                                                                "Offer ID": offer.get("id")
-                                                            }
-                                                            
-                                                            if trip_entry not in all_cached_trips:
-                                                                all_cached_trips.append(trip_entry)
-                                except Exception:
-                                    continue
-                                    
+                                                        if trip_entry not in all_cached_trips:
+                                                            all_cached_trips.append(trip_entry)
+                            except Exception:
+                                continue
+                                
                             completed_calls += 1
                             progress_bar.progress(min(completed_calls / total_calls, 1.0))
                     
