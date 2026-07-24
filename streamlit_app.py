@@ -187,9 +187,10 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                     c1, c2 = st.columns([3, 1])
                     with c1:
                         st.markdown(f"### ✈️ {trip['Route']}")
-                        st.caption(f"⏱️ **{trip['Ground (hrs)'])} hours** on the ground")
+                        ground_time_val = trip['Ground (hrs)']
+                        st.caption(f"⏱️ **{ground_time_val} hours** on the ground")
                     with c2:
-                        st.markdown(f"### £{trip['Total Price (£)]']}")
+                        st.markdown(f"### £{trip['Total Price (£)']}")
                     
                     st.divider()
                     
