@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import requests
 
 st.set_page_config(page_title="Extreme Day Trip Engine (Live)", layout="wide")
@@ -83,15 +83,23 @@ selected_dest_labels = st.sidebar.multiselect(
 )
 destinations = [POPULAR_DESTINATIONS[label] for label in selected_dest_labels]
 
+# Native interactive calendar date pickers
 col1, col2 = st.sidebar.columns(2)
-start_date_str = col1.text_input("Start Date", "2026-08-01")
-end_date_str = col2.text_input("Window End", "2026-08-14")
+start_date = col1.date_input("Start Date", value=date(2026, 8, 1))
+end_date = col2.date_input("Window End", value=date(2026, 8, 14))
 
 st.sidebar.subheader("Time & Constraints")
-earliest_outbound = st.sidebar.text_input("Earliest Outbound", "05:00")
-latest_outbound = st.sidebar.text_input("Latest Outbound", "10:00")
-# Allows entering values past midnight like 02:00 to catch red-eyes landing the next calendar morning
-latest_inbound = st.sidebar.text_input("Latest Coming Home (Return)", "02:00")
+
+# Standardized time options for clean dropdowns
+TIME_OPTIONS = [
+    "00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", 
+    "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", 
+    "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"
+]
+
+earliest_outbound = st.sidebar.selectbox("Earliest Outbound", TIME_OPTIONS, index=5) # Default 05:00
+latest_outbound = st.sidebar.selectbox("Latest Outbound", TIME_OPTIONS, index=10)   # Default 10:00
+latest_inbound = st.sidebar.selectbox("Latest Coming Home (Return)", TIME_OPTIONS, index=2) # Default 02:00 (next day)
 
 min_ground = st.sidebar.slider("Min Ground Hours", 4.0, 16.0, 8.0, 0.5)
 
@@ -115,9 +123,6 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
     elif not destinations:
         st.error("Please select at least one destination.")
     else:
-        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
-        
         delta_days = (end_date - start_date).days
         if delta_days < 0 or delta_days > 14:
             st.error("The search date span must be between 1 and 14 days maximum.")
@@ -206,7 +211,6 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                             latest_in_h = int(latest_inbound.split(":")[0])
                                             latest_in_m = int(latest_inbound.split(":")[1])
                                             
-                                            # Handle next-day early hours window (e.g., 02:00 means up to 2 AM the following morning)
                                             out_base_date = datetime.strptime(dt, "%Y-%m-%d").date()
                                             in_flight_date = in_dep_time.date()
                                             
@@ -214,7 +218,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                             in_total_mins = (in_dep_time.hour * 60 + in_dep_time.minute) + (day_offset * 1440)
                                             
                                             latest_in_total_mins = latest_in_h * 60 + latest_in_m
-                                            if latest_in_h < 6:  # If user specifies an early hour like 02:00, treat it as next day morning
+                                            if latest_in_h < 6:  # Early morning hours assumed next day boundary
                                                 latest_in_total_mins += 1440
                                             
                                             if earliest_h <= out_hour <= latest_h and in_total_mins <= latest_in_total_mins:
