@@ -148,24 +148,14 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                 for future in as_completed(futures):
                     paired_trips.extend(future.result())
             
-            # --- DEDUPLICATION STEP ---
-            unique_trips_dict = {}
-            for trip in paired_trips:
-                # Create a unique key based on exact route and flight times
-                key = (
-                    trip["Route"], 
-                    trip["Outbound Date"], 
-                    trip["Return Date"], 
-                    trip["Outbound"], 
-                    trip["Return"]
-                )
-                
-                # If we haven't seen this flight combo, or if this new price is cheaper, keep it
-                if key not in unique_trips_dict or trip["Total Price (£)"] < unique_trips_dict[key]["Total Price (£)"]:
-                    unique_trips_dict[key] = trip
-            
-            paired_trips = list(unique_trips_dict.values())
-            # --------------------------
+            # --- SIMPLIFIED DEDUPLICATION ---
+            unique_trips = {}
+            for t in paired_trips:
+                key = (t["Route"], t["Outbound Date"], t["Return Date"], t["Outbound"], t["Return"])
+                if key not in unique_trips or t["Total Price (£)"] < unique_trips[key]["Total Price (£)"]:
+                    unique_trips[key] = t
+            paired_trips = list(unique_trips.values())
+            # --------------------------------
             
             if sort_option == "Longest ground time first":
                 paired_trips.sort(key=lambda x: x["Ground (hrs)"], reverse=True)
