@@ -87,7 +87,6 @@ col1, col2 = st.sidebar.columns(2)
 start_date = col1.date_input("Start Date", value=date(2026, 8, 1))
 end_date = col2.date_input("Window End", value=date(2026, 8, 14))
 
-# Clean, professional multiselect drop-down replacing the broken horizontal tiles
 all_days_map = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4, "Saturday": 5, "Sunday": 6}
 selected_day_names = st.sidebar.multiselect(
     "Departure Days",
@@ -163,6 +162,13 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                 with st.spinner(f"Querying live Duffel API across {len(destinations)} destinations and {len(dates_to_check)} dates from {home_airport}..."):
                     for dest in destinations:
                         for dt in dates_to_check:
+                            # CRITICAL FIX: To allow flights returning after midnight (e.g. 01:00 AM the next calendar day),
+                            # we must request a return slice date that is +1 day from the outbound departure date (`dt`),
+                            # otherwise Duffel will only search for return flights on the exact same calendar day, yielding 0 results.
+                            outbound_date_obj = datetime.strptime(dt, "%Y-%m-%d").date()
+                            return_date_obj = outbound_date_obj + timedelta(days=1)
+                            return_dt_str = return_date_obj.strftime("%Y-%m-%d")
+
                             payload = {
                                 "data": {
                                     "slices": [
@@ -174,7 +180,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                         {
                                             "origin": dest,
                                             "destination": home_airport,
-                                            "departure_date": dt
+                                            "departure_date": return_dt_str
                                         }
                                     ],
                                     "passengers": [{"type": "adult"}],
@@ -224,18 +230,18 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                                 latest_in_h = int(latest_inbound.split(":")[0])
                                                 latest_in_m = int(latest_inbound.split(":")[1])
                                                 
-                                                out_base_date = datetime.strptime(dt, "%Y-%m-%d").date()
-                                                in_flight_date = in_dep_time.date()
+                                                # Calculate total elapsed minutes from outbound departure date start
+                                                out_base_datetime = datetime.combine(outbound_date_obj, datetime.min.time())
+                                                in_dep_delta = (in_dep_time.replace(tzinfo=None) - out_base_datetime).total_seconds() / 60.0
                                                 
-                                                day_offset = (in_flight_date - out_base_date).days
-                                                in_total_mins = (in_dep_time.hour * 60 + in_dep_time.minute) + (day_offset * 1440)
+                                                # User's specified latest coming home limit mapped relative to the outbound start date window
+                                                # If user selects an early hour like 01:00 or 02:00, it safely falls on day + 1 (+ 1440 mins)
+                                                latest_in_allowed_mins = latest_in_h * 60 + latest_in_m
+                                                if latest_in_h < 12:  # Early morning hours cross over to the next calendar day morning
+                                                    latest_in_allowed_mins += 1440
                                                 
-                                                latest_in_total_mins = latest_in_h * 60 + latest_in_m
-                                                if latest_in_h < 6:
-                                                    latest_in_total_mins += 1440
-                                                
-                                                if earliest_h <= out_hour <= latest_h and in_total_mins <= latest_in_total_mins:
-                                                    ground_mins = (in_dep_time - out_arr_time).total_seconds() / 60.0
+                                                if earliest_h <= out_hour <= latest_h and in_dep_delta <= latest_in_allowed_mins:
+                                                    ground_mins = (in_dep_time.replace(tzinfo=None) - out_arr_time.replace(tzinfo=None)).total_seconds() / 60.0
                                                     ground_hrs = ground_mins / 60.0
                                                     
                                                     if ground_hrs >= min_ground and total_price <= max_budget:
