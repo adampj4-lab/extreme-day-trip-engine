@@ -87,18 +87,14 @@ col1, col2 = st.sidebar.columns(2)
 start_date = col1.date_input("Start Date", value=date(2026, 8, 1))
 end_date = col2.date_input("Window End", value=date(2026, 8, 14))
 
-# Interactive Day-of-Week Tile Selector (Multiselect pills)
-st.sidebar.markdown("**Allowed Departure Days**")
-day_cols = st.sidebar.columns(7)
-day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-day_indices = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
-
-selected_days = []
-for idx, name in enumerate(day_names):
-    with day_cols[idx]:
-        # Default all days selected
-        if st.checkbox(name, value=True, key=f"day_{name}"):
-            selected_days.append(idx)
+# Clean, professional multiselect drop-down replacing the broken horizontal tiles
+all_days_map = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4, "Saturday": 5, "Sunday": 6}
+selected_day_names = st.sidebar.multiselect(
+    "Departure Days",
+    options=list(all_days_map.keys()),
+    default=list(all_days_map.keys())
+)
+selected_days = [all_days_map[d] for d in selected_day_names]
 
 st.sidebar.subheader("Time & Constraints")
 
@@ -134,7 +130,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
     elif not destinations:
         st.error("Please select at least one destination.")
     elif not selected_days:
-        st.error("Please select at least one departure day of the week.")
+        st.error("Please select at least one departure day.")
     else:
         delta_days = (end_date - start_date).days
         if delta_days < 0 or delta_days > 14:
@@ -143,7 +139,6 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
             dates_to_check = []
             cur = start_date
             while cur <= end_date:
-                # Only include dates whose weekday matches the selected tile filters
                 if cur.weekday() in selected_days:
                     dates_to_check.append(cur.strftime("%Y-%m-%d"))
                 cur += timedelta(days=1)
