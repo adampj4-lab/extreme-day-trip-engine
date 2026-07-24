@@ -1,36 +1,77 @@
 import streamlit as st
 from datetime import datetime, timedelta
-import random
-import urllib.parse
+import requests
 
-st.set_page_config(page_title="Extreme Day Trip Engine", layout="wide")
+st.set_page_config(page_title="Extreme Day Trip Engine (Live)", layout="wide")
 
-st.title("✈️ Extreme Day Trip Engine")
-st.markdown("Find and map the ultimate multi-hub European day trips instantly.")
+st.title("✈️ Extreme Day Trip Engine — Live Duffel API")
+st.markdown("Scan real-world direct routes, live market prices, and tight turnaround day trips.")
+
+st.sidebar.header("Live API Configuration")
+duffel_token = st.sidebar.text_input("Duffel Access Token", type="password", help="Enter your live or test Duffel API token here.")
 
 st.sidebar.header("Trip Parameters")
 
-homes_input = st.sidebar.text_input("Home Airports (comma-separated)", "LBA, MAN, EMA")
-HOMES = [h.strip().upper() for h in homes_input.split(",") if h.strip()]
+# Hierarchical Airport Selection: Country -> Airport
+AIRPORT_HIERARCHY = {
+    "United Kingdom": {
+        "Leeds Bradford (LBA)": "LBA",
+        "Manchester (MAN)": "MAN",
+        "East Midlands (EMA)": "EMA",
+        "Newcastle (NCL)": "NCL",
+        "Liverpool (LPL)": "LPL",
+        "Birmingham (BHX)": "BHX",
+        "London Heathrow (LHR)": "LHR",
+        "London Gatwick (LGW)": "LGW",
+        "London Stansted (STN)": "STN",
+        "Humberside (HUY)": "HUY"
+    },
+    "Ireland": {
+        "Dublin (DUB)": "DUB",
+        "Cork (ORK)": "ORK",
+        "Shannon (SNN)": "SNN"
+    },
+    "Spain": {
+        "Barcelona (BCN)": "BCN",
+        "Malaga (AGP)": "AGP",
+        "Palma de Mallorca (PMI)": "PMI",
+        "Alicante (ALC)": "ALC",
+        "Madrid (MAD)": "MAD"
+    },
+    "Netherlands": {
+        "Amsterdam Schiphol (AMS)": "AMS"
+    },
+    "France": {
+        "Paris Charles de Gaulle (CDG)": "CDG",
+        "Paris Orly (ORY)": "ORY"
+    },
+    "Denmark": {
+        "Copenhagen (CPH)": "CPH"
+    },
+    "Italy": {
+        "Milan Malpensa (MXP)": "MXP",
+        "Rome Fiumicino (FCO)": "FCO"
+    }
+}
 
-dest_choice = st.sidebar.radio("Destination Mode", ["Top European Hubs ('ANYWHERE')", "Custom List"])
-if dest_choice == "Top European Hubs ('ANYWHERE')":
-    DESTINATIONS = ["DUB", "AMS", "BCN", "AGP", "PMI", "ALC", "CDG", "CPH", "MXP"]
-else:
-    dests_input = st.sidebar.text_input("Destination Codes (comma-separated)", "DUB, BCN, AMS")
-    DESTINATIONS = [d.strip().upper() for d in dests_input.split(",") if d.strip()]
+selected_country = st.sidebar.selectbox("Home Country", list(AIRPORT_HIERARCHY.keys()), index=0)
+available_airports = AIRPORT_HIERARCHY[selected_country]
+
+selected_airport_label = st.sidebar.selectbox("Home Airport", list(available_airports.keys()))
+home_airport = available_airports[selected_airport_label]
+
+destinations_input = st.sidebar.text_input("Destination Codes (comma-separated)", "DUB, AMS, BCN, AGP, PMI, ALC, CPH, MXP")
+destinations = [d.strip().upper() for d in destinations_input.split(",") if d.strip()]
 
 col1, col2 = st.sidebar.columns(2)
 start_date_str = col1.text_input("Start Date", "2026-08-01")
-end_date_str = col2.text_input("End Date", "2026-08-05")
+end_date_str = col2.text_input("Max 14-Day Window End", "2026-08-14")
 
 st.sidebar.subheader("Time & Constraints")
 earliest_outbound = st.sidebar.text_input("Earliest Outbound", "05:00")
 latest_outbound = st.sidebar.text_input("Latest Outbound", "10:00")
-latest_return = st.sidebar.text_input("Latest Return Limit", "03:00")
 
 min_ground = st.sidebar.slider("Min Ground Hours", 4.0, 16.0, 8.0, 0.5)
-max_flight = st.sidebar.slider("Max Flight Duration (hrs)", 2.0, 6.0, 4.0, 0.5)
 
 if "max_budget" not in st.session_state:
     st.session_state.max_budget = 200.0
@@ -43,127 +84,159 @@ max_budget = st.sidebar.slider(
 )
 
 sort_option = st.sidebar.selectbox("Sort Results By", ["Cheapest total price first", "Longest ground time first"])
-weekend_only = st.sidebar.checkbox("Weekends Only (Sat/Sun)", value=False)
 
-if st.sidebar.button("Run Engine 🚀", type="primary"):
-    start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-    end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
-    
-    dates_to_check = []
-    current_date = start_date
-    while current_date <= end_date:
-        if not weekend_only or current_date.weekday() in [5, 6]:
-            dates_to_check.append(current_date.strftime("%Y-%m-%d"))
-        current_date += timedelta(days=1)
+st.sidebar.info("🔒 Enforcing **Direct Flights Only** and **1 Adult**.")
+
+if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
+    if not duffel_token:
+        st.error("Please provide your Duffel Access Token in the sidebar.")
+    else:
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
         
-    with st.spinner("Generating extreme day trip itineraries..."):
-        generated_trips = []
-        
-        carriers = [("Ryanair", "FR"), ("Jet2", "LS"), ("Aer Lingus", "EI"), ("EasyJet", "U2")]
-        
-        for home in HOMES:
-            for dest in DESTINATIONS:
-                for dt in dates_to_check:
-                    out_hour = random.randint(int(earliest_outbound.split(":")[0]), int(latest_outbound.split(":")[0]))
-                    out_min = random.choice([0, 15, 30, 45])
-                    out_dep_str = f"{out_hour:02d}:{out_min:02d}"
-                    
-                    flight_dur = random.randint(2, int(max_flight))
-                    out_arr_hour = out_hour + flight_dur
-                    out_arr_str = f"{out_arr_hour:02d}:{out_min:02d}"
-                    
-                    ground_dur = random.uniform(min_ground, min_ground + 6.0)
-                    total_out_mins = (out_arr_hour * 60) + out_min
-                    total_return_mins = total_out_mins + int(ground_dur * 60)
-                    
-                    ret_hour = (total_return_mins // 60) % 24
-                    ret_min = total_return_mins % 60
-                    ret_time_str = f"{ret_hour:02d}:{ret_min:02d}"
-                    
-                    ret_date_obj = datetime.strptime(dt, "%Y-%m-%d")
-                    if ret_hour < out_hour:
-                        ret_date_obj += timedelta(days=1)
-                    ret_date_str = ret_date_obj.strftime("%Y-%m-%d")
-                    
-                    price = round(random.uniform(45.0, max_budget), 2)
-                    
-                    c_out = random.choice(carriers)
-                    c_in = random.choice(carriers)
-                    
-                    out_flight_code = f"{c_out[1]}{random.randint(100,999)}"
-                    in_flight_code = f"{c_in[1]}{random.randint(100,999)}"
-                    
-                    generated_trips.append({
-                        "home": home,
-                        "dest": dest,
-                        "Route": f"{home} ➔ {dest} ➔ {home}",
-                        "Outbound Date": dt,
-                        "Return Date": ret_date_str,
-                        "Ground (hrs)": round(ground_dur, 1),
-                        "Total Price (£)": price,
-                        "Outbound Time": f"{out_dep_str} ➔ {out_arr_str}",
-                        "Return Time": f"{ret_time_str} ➔ {(ret_hour+1)%24:02d}:{ret_min:02d}",
-                        "Out Carrier Name": c_out[0],
-                        "Out Flight Code": out_flight_code,
-                        "In Flight Code": in_flight_code,
-                        "Out Carrier": f"{c_out[0]} ({out_flight_code})",
-                        "In Carrier": f"{c_in[0]} ({in_flight_code})"
-                    })
-        
-        valid_trips = [t for t in generated_trips if t["Total Price (£)"] <= max_budget and t["Ground (hrs)"] >= min_ground]
-        
-        if sort_option == "Longest ground time first":
-            valid_trips.sort(key=lambda x: x["Ground (hrs)"], reverse=True)
+        delta_days = (end_date - start_date).days
+        if delta_days < 0 or delta_days > 14:
+            st.error("The search date span must be between 1 and 14 days maximum.")
         else:
-            valid_trips.sort(key=lambda x: x["Total Price (£)"])
+            dates_to_check = []
+            cur = start_date
+            while cur <= end_date:
+                dates_to_check.append(cur.strftime("%Y-%m-%d"))
+                cur += timedelta(days=1)
+                
+            headers = {
+                "Authorization": f"Bearer {duffel_token}",
+                "Duffel-Version": "v1",
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
             
-        st.success(f"Generated {len(valid_trips)} matching itineraries!")
+            all_cached_trips = []
+            
+            total_calls = len(destinations) * len(dates_to_check)
+            progress_text = st.empty()
+            progress_bar = st.progress(0)
+            completed_calls = 0
+            
+            with st.spinner(f"Querying live Duffel API across {len(destinations)} destinations and {len(dates_to_check)} dates from {home_airport}..."):
+                for dest in destinations:
+                    for dt in dates_to_check:
+                        payload = {
+                            "data": {
+                                "slices": [
+                                    {
+                                        "origin": home_airport,
+                                        "destination": dest,
+                                        "departure_date": dt
+                                    },
+                                    {
+                                        "origin": dest,
+                                        "destination": home_airport,
+                                        "departure_date": dt
+                                    }
+                                ],
+                                "passengers": [{"type": "adult"}],
+                                "cabin_class": "economy",
+                                "max_connections": 0
+                            }
+                        }
+                        
+                        try:
+                            response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=payload, headers=headers)
+                            if response.status_code == 201:
+                                data = response.json().get("data", {})
+                                offers = data.get("offers", [])
+                                
+                                for offer in offers:
+                                    total_price = float(offer.get("total_amount", 0))
+                                    currency = offer.get("total_currency", "GBP")
+                                    
+                                    if currency != "GBP":
+                                        continue
+                                        
+                                    slices = offer.get("slices", [])
+                                    if len(slices) == 2:
+                                        out_slice = slices[0]
+                                        in_slice = slices[1]
+                                        
+                                        out_seg = out_slice.get("segments", [{}])[0]
+                                        in_seg = in_slice.get("segments", [{}])[0]
+                                        
+                                        out_dep = out_seg.get("departing_at", "")
+                                        out_arr = out_seg.get("arriving_at", "")
+                                        in_dep = in_seg.get("departing_at", "")
+                                        in_arr = in_seg.get("arriving_at", "")
+                                        
+                                        if out_dep and out_arr and in_dep and in_arr:
+                                            out_dep_time = datetime.fromisoformat(out_dep.replace("Z", "+00:00"))
+                                            out_arr_time = datetime.fromisoformat(out_arr.replace("Z", "+00:00"))
+                                            in_dep_time = datetime.fromisoformat(in_dep.replace("Z", "+00:00"))
+                                            in_arr_time = datetime.fromisoformat(in_arr.replace("Z", "+00:00"))
+                                            
+                                            out_str_time = out_dep_time.strftime("%H:%M")
+                                            out_hour = out_dep_time.hour
+                                            
+                                            earliest_h = int(earliest_outbound.split(":")[0])
+                                            latest_h = int(latest_outbound.split(":")[0])
+                                            
+                                            if earliest_h <= out_hour <= latest_h:
+                                                ground_mins = (in_dep_time - out_arr_time).total_seconds() / 60.0
+                                                ground_hrs = ground_mins / 60.0
+                                                
+                                                if ground_hrs >= min_ground and total_price <= max_budget:
+                                                    owner = offer.get("owner", {}).get("name", "Airline")
+                                                    
+                                                    all_cached_trips.append({
+                                                        "home": home_airport,
+                                                        "dest": dest,
+                                                        "Route": f"{home_airport} ➔ {dest} ➔ {home_airport}",
+                                                        "Outbound Date": dt,
+                                                        "Return Date": dt,
+                                                        "Ground (hrs)": round(ground_hrs, 1),
+                                                        "Total Price (£)": total_price,
+                                                        "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
+                                                        "Return Time": f"{in_dep_time.strftime('%H:%M')} ➔ {in_arr_time.strftime('%H:%M')}",
+                                                        "Carrier": owner,
+                                                        "Offer ID": offer.get("id")
+                                                    })
+                        except Exception:
+                            continue
+                            
+                        completed_calls += 1
+                        progress_bar.progress(min(completed_calls / total_calls, 1.0))
+                
+                progress_text.empty()
+                progress_bar.empty()
+                st.session_state.cached_trips = all_cached_trips
+
+if "cached_trips" in st.session_state:
+    valid_trips = st.session_state.cached_trips
+    
+    if sort_option == "Longest ground time first":
+        valid_trips.sort(key=lambda x: x["Ground (hrs)"], reverse=True)
+    else:
+        valid_trips.sort(key=lambda x: x["Total Price (£)"])
         
-        # --- RENDER CARDS ---
-        for trip in valid_trips:
-            with st.container(border=True):
-                c1, c2 = st.columns([3, 1])
-                with c1:
-                    st.markdown(f"### ✈️ {trip['Route']}")
-                    ground_time_val = trip['Ground (hrs)']
-                    st.caption(f"⏱️ **{ground_time_val} hours** on the ground")
-                with c2:
-                    st.markdown(f"### £{trip['Total Price (£)']:.2f}")
-                
-                st.divider()
-                
-                col_out, col_in = st.columns(2)
-                with col_out:
-                    st.markdown(f"**Outbound ({trip['Outbound Date']})**")
-                    st.write(f"🕒 {trip['Outbound Time']}")
-                    st.text(f"Carrier: {trip['Out Carrier']}")
-                with col_in:
-                    st.markdown(f"**Return ({trip['Return Date']})**")
-                    st.write(f"🕒 {trip['Return Time']}")
-                    st.text(f"Carrier: {trip['In Carrier']}")
-                
-                st.divider()
-                
-                # Enhanced Deep Links with specific flight numbers and codes for precision targeting
-                gf_query = f"Flights from {trip['home']} to {trip['dest']} on {trip['Outbound Date']} returning on {trip['Return Date']} flight {trip['Out Flight Code']} {trip['In Flight Code']}"
-                gf_url = f"https://www.google.com/travel/flights?q={urllib.parse.quote(gf_query)}"
-                
-                sk_url = f"https://www.skyscanner.net/transport/flights/{trip['home'].lower()}/{trip['dest'].lower()}/{trip['Outbound Date'].replace('-','')}/{trip['Return Date'].replace('-','')}/?adults=1&cabinclass=economy"
-                
-                carrier_name = trip['Out Carrier Name'].lower()
-                if "jet2" in carrier_name:
-                    airline_url = "https://www.jet2.com/"
-                elif "ryanair" in carrier_name:
-                    airline_url = "https://www.ryanair.com/"
-                elif "easyjet" in carrier_name:
-                    airline_url = "https://www.easyjet.com/"
-                else:
-                    airline_url = "https://www.aerlingus.com/"
-                
-                b1, b2, b3 = st.columns(3)
-                with b1:
-                    st.link_button("🌐 Google Flights (Targeted)", gf_url, use_container_width=True)
-                with b2:
-                    st.link_button("✈️ Skyscanner", sk_url, use_container_width=True)
-                with b3:
-                    st.link_button(f"🔗 {trip['Out Carrier Name']} Direct", airline_url, use_container_width=True)
+    st.success(f"Found {len(valid_trips)} live direct itineraries matching your criteria!")
+    
+    for trip in valid_trips:
+        with st.container(border=True):
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.markdown(f"### ✈️ {trip['Route']}")
+                st.caption(f"⏱️ **{trip['Ground (hrs)']} hours** on the ground | Operated by {trip['Carrier']}")
+            with c2:
+                st.markdown(f"### £{trip['Total Price (£)']:.2f}")
+            
+            st.divider()
+            
+            col_out, col_in = st.columns(2)
+            with col_out:
+                st.markdown(f"**Outbound ({trip['Outbound Date']})**")
+                st.write(f"🕒 {trip['Outbound Time']}")
+            with col_in:
+                st.markdown(f"**Return ({trip['Return Date']})**")
+                st.write(f"🕒 {trip['Return Time']}")
+            
+            st.divider()
+            st.text(f"Duffel Verified Live Offer ID: {trip['Offer ID']}")
