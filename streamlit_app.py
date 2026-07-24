@@ -71,7 +71,7 @@ if "raw_offers" in st.session_state:
     if not offers:
         st.warning("No offers returned for this configuration.")
     else:
-        st.markdown(### "Available Raw Itineraries")
+        st.markdown("### Available Raw Itineraries")
         
         for idx, offer in enumerate(offers):
             total_price = offer.get("total_amount")
