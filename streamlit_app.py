@@ -79,13 +79,13 @@ POPULAR_DESTINATIONS = {
 selected_dest_labels = st.sidebar.multiselect(
     "Destinations", 
     options=list(POPULAR_DESTINATIONS.keys()),
-    default=["Dublin (DUB)", "Amsterdam (AMS)", "Barcelona (BCN)", "Ibiza (IBZ)"]
+    default=["Dublin (DUB)", "Amsterdam (AMS)", "Ibiza (IBZ)"]
 )
 destinations = [POPULAR_DESTINATIONS[label] for label in selected_dest_labels]
 
 col1, col2 = st.sidebar.columns(2)
-start_date = col1.date_input("Start Date", value=date(2026, 8, 1))
-end_date = col2.date_input("Window End", value=date(2026, 8, 14))
+start_date = col1.date_input("Start Date", value=date(2026, 9, 1))
+end_date = col2.date_input("Window End", value=date(2026, 9, 14))
 
 all_days_map = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4, "Saturday": 5, "Sunday": 6}
 selected_day_names = st.sidebar.multiselect(
@@ -162,13 +162,12 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                 with st.spinner(f"Querying live Duffel API across {len(destinations)} destinations and {len(dates_to_check)} dates from {home_airport}..."):
                     for dest in destinations:
                         for dt in dates_to_check:
-                            # CRITICAL FIX: To allow flights returning after midnight (e.g. 01:00 AM the next calendar day),
-                            # we must request a return slice date that is +1 day from the outbound departure date (`dt`),
-                            # otherwise Duffel will only search for return flights on the exact same calendar day, yielding 0 results.
                             outbound_date_obj = datetime.strptime(dt, "%Y-%m-%d").date()
                             return_date_obj = outbound_date_obj + timedelta(days=1)
                             return_dt_str = return_date_obj.strftime("%Y-%m-%d")
 
+                            # ROBUST APPROACH: Send a single offer request query with BOTH slice dates.
+                            # Duffel natively supports multi-slice requests where slice 2 can be the next calendar day.
                             payload = {
                                 "data": {
                                     "slices": [
@@ -230,36 +229,37 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                                 latest_in_h = int(latest_inbound.split(":")[0])
                                                 latest_in_m = int(latest_inbound.split(":")[1])
                                                 
-                                                # Calculate total elapsed minutes from outbound departure date start
-                                                out_base_datetime = datetime.combine(outbound_date_obj, datetime.min.time())
-                                                in_dep_delta = (in_dep_time.replace(tzinfo=None) - out_base_datetime).total_seconds() / 60.0
-                                                
-                                                # User's specified latest coming home limit mapped relative to the outbound start date window
-                                                # If user selects an early hour like 01:00 or 02:00, it safely falls on day + 1 (+ 1440 mins)
-                                                latest_in_allowed_mins = latest_in_h * 60 + latest_in_m
-                                                if latest_in_h < 12:  # Early morning hours cross over to the next calendar day morning
-                                                    latest_in_allowed_mins += 1440
-                                                
-                                                if earliest_h <= out_hour <= latest_h and in_dep_delta <= latest_in_allowed_mins:
-                                                    ground_mins = (in_dep_time.replace(tzinfo=None) - out_arr_time.replace(tzinfo=None)).total_seconds() / 60.0
-                                                    ground_hrs = ground_mins / 60.0
+                                                # Time constraint validation: Check outbound departure window
+                                                if earliest_h <= out_hour <= latest_h:
+                                                    # Calculate inbound arrival time relative to outbound base date
+                                                    out_base_datetime = datetime.combine(outbound_date_obj, datetime.min.time())
+                                                    in_dep_delta_mins = (in_dep_time.replace(tzinfo=None) - out_base_datetime).total_seconds() / 60.0
                                                     
-                                                    if ground_hrs >= min_ground and total_price <= max_budget:
-                                                        owner = offer.get("owner", {}).get("name", "Airline")
+                                                    # Latest inbound threshold mapping (handles past-midnight next day hours cleanly)
+                                                    latest_in_allowed_mins = latest_in_h * 60 + latest_in_m
+                                                    if latest_in_h < 12:  # Crosses into early morning next day
+                                                        latest_in_allowed_mins += 1440
                                                         
-                                                        all_cached_trips.append({
-                                                            "home": home_airport,
-                                                            "dest": dest,
-                                                            "Route": f"{home_airport} ➔ {dest} ➔ {home_airport}",
-                                                            "Outbound Date": dt,
-                                                            "Return Date": in_dep_time.strftime("%Y-%m-%d"),
-                                                            "Ground (hrs)": round(ground_hrs, 1),
-                                                            "Total Price (£)": total_price,
-                                                            "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
-                                                            "Return Time": f"{in_dep_time.strftime('%H:%M')} ➔ {in_arr_time.strftime('%H:%M')}",
-                                                            "Carrier": owner,
-                                                            "Offer ID": offer.get("id")
-                                                        })
+                                                    if in_dep_delta_mins <= latest_in_allowed_mins:
+                                                        ground_mins = (in_dep_time.replace(tzinfo=None) - out_arr_time.replace(tzinfo=None)).total_seconds() / 60.0
+                                                       
+                                                        # Safety check: ensure ground time is non-negative and meets minimum requirement
+                                                        if ground_mins >= (min_ground * 60) and total_price <= max_budget:
+                                                            owner = offer.get("owner", {}).get("name", "Airline")
+                                                            
+                                                            all_cached_trips.append({
+                                                        "home": home_airport,
+                                                        "dest": dest,
+                                                        "Route": f"{home_airport} ➔ {dest} ➔ {home_airport}",
+                                                        "Outbound Date": dt,
+                                                        "Return Date": in_dep_time.strftime("%Y-%m-%d"),
+                                                        "Ground (hrs)": round(ground_mins / 60.0, 1),
+                                                        "Total Price (£)": total_price,
+                                                        "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
+                                                        "Return Time": f"{in_dep_time.strftime('%H:%M')} ➔ {in_arr_time.strftime('%H:%M')}",
+                                                        "Carrier": owner,
+                                                        "Offer ID": offer.get("id")
+                                                    })
                             except Exception:
                                 continue
                                 
