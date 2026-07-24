@@ -90,6 +90,7 @@ end_date_str = col2.text_input("Window End", "2026-08-14")
 st.sidebar.subheader("Time & Constraints")
 earliest_outbound = st.sidebar.text_input("Earliest Outbound", "05:00")
 latest_outbound = st.sidebar.text_input("Latest Outbound", "10:00")
+latest_inbound = st.sidebar.text_input("Latest Coming Home (Return)", "23:59")
 
 min_ground = st.sidebar.slider("Min Ground Hours", 4.0, 16.0, 8.0, 0.5)
 
@@ -197,11 +198,17 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                             
                                             out_str_time = out_dep_time.strftime("%H:%M")
                                             out_hour = out_dep_time.hour
+                                            in_hour = in_dep_time.hour
                                             
                                             earliest_h = int(earliest_outbound.split(":")[0])
                                             latest_h = int(latest_outbound.split(":")[0])
+                                            latest_in_h = int(latest_inbound.split(":")[0])
+                                            latest_in_m = int(latest_inbound.split(":")[1])
+                                            latest_in_total_mins = latest_in_h * 60 + latest_in_m
                                             
-                                            if earliest_h <= out_hour <= latest_h:
+                                            in_total_mins = in_dep_time.hour * 60 + in_dep_time.minute
+                                            
+                                            if earliest_h <= out_hour <= latest_h and in_total_mins <= latest_in_total_mins:
                                                 ground_mins = (in_dep_time - out_arr_time).total_seconds() / 60.0
                                                 ground_hrs = ground_mins / 60.0
                                                 
