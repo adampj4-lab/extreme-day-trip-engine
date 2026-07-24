@@ -83,23 +83,34 @@ selected_dest_labels = st.sidebar.multiselect(
 )
 destinations = [POPULAR_DESTINATIONS[label] for label in selected_dest_labels]
 
-# Native interactive calendar date pickers
 col1, col2 = st.sidebar.columns(2)
 start_date = col1.date_input("Start Date", value=date(2026, 8, 1))
 end_date = col2.date_input("Window End", value=date(2026, 8, 14))
 
+# Interactive Day-of-Week Tile Selector (Multiselect pills)
+st.sidebar.markdown("**Allowed Departure Days**")
+day_cols = st.sidebar.columns(7)
+day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+day_indices = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
+
+selected_days = []
+for idx, name in enumerate(day_names):
+    with day_cols[idx]:
+        # Default all days selected
+        if st.checkbox(name, value=True, key=f"day_{name}"):
+            selected_days.append(idx)
+
 st.sidebar.subheader("Time & Constraints")
 
-# Standardized time options for clean dropdowns
 TIME_OPTIONS = [
     "00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", 
     "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", 
     "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"
 ]
 
-earliest_outbound = st.sidebar.selectbox("Earliest Outbound", TIME_OPTIONS, index=5) # Default 05:00
-latest_outbound = st.sidebar.selectbox("Latest Outbound", TIME_OPTIONS, index=10)   # Default 10:00
-latest_inbound = st.sidebar.selectbox("Latest Coming Home (Return)", TIME_OPTIONS, index=2) # Default 02:00 (next day)
+earliest_outbound = st.sidebar.selectbox("Earliest Outbound", TIME_OPTIONS, index=5)
+latest_outbound = st.sidebar.selectbox("Latest Outbound", TIME_OPTIONS, index=10)
+latest_inbound = st.sidebar.selectbox("Latest Coming Home (Return)", TIME_OPTIONS, index=2)
 
 min_ground = st.sidebar.slider("Min Ground Hours", 4.0, 16.0, 8.0, 0.5)
 
@@ -122,6 +133,8 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
         st.error("Please provide your Duffel Access Token in the sidebar.")
     elif not destinations:
         st.error("Please select at least one destination.")
+    elif not selected_days:
+        st.error("Please select at least one departure day of the week.")
     else:
         delta_days = (end_date - start_date).days
         if delta_days < 0 or delta_days > 14:
@@ -130,126 +143,131 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
             dates_to_check = []
             cur = start_date
             while cur <= end_date:
-                dates_to_check.append(cur.strftime("%Y-%m-%d"))
+                # Only include dates whose weekday matches the selected tile filters
+                if cur.weekday() in selected_days:
+                    dates_to_check.append(cur.strftime("%Y-%m-%d"))
                 cur += timedelta(days=1)
                 
-            headers = {
-                "Authorization": f"Bearer {duffel_token}",
-                "Duffel-Version": "v1",
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            }
-            
-            all_cached_trips = []
-            
-            total_calls = len(destinations) * len(dates_to_check)
-            progress_text = st.empty()
-            progress_bar = st.progress(0)
-            completed_calls = 0
-            
-            with st.spinner(f"Querying live Duffel API across {len(destinations)} destinations and {len(dates_to_check)} dates from {home_airport}..."):
-                for dest in destinations:
-                    for dt in dates_to_check:
-                        payload = {
-                            "data": {
-                                "slices": [
-                                    {
-                                        "origin": home_airport,
-                                        "destination": dest,
-                                        "departure_date": dt
-                                    },
-                                    {
-                                        "origin": dest,
-                                        "destination": home_airport,
-                                        "departure_date": dt
-                                    }
-                                ],
-                                "passengers": [{"type": "adult"}],
-                                "cabin_class": "economy",
-                                "max_connections": 0
-                            }
-                        }
-                        
-                        try:
-                            response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=payload, headers=headers)
-                            if response.status_code == 201:
-                                data = response.json().get("data", {})
-                                offers = data.get("offers", [])
-                                
-                                for offer in offers:
-                                    total_price = float(offer.get("total_amount", 0))
-                                    currency = offer.get("total_currency", "GBP")
-                                    
-                                    if currency != "GBP":
-                                        continue
-                                        
-                                    slices = offer.get("slices", [])
-                                    if len(slices) == 2:
-                                        out_slice = slices[0]
-                                        in_slice = slices[1]
-                                        
-                                        out_seg = out_slice.get("segments", [{}])[0]
-                                        in_seg = in_slice.get("segments", [{}])[0]
-                                        
-                                        out_dep = out_seg.get("departing_at", "")
-                                        out_arr = out_seg.get("arriving_at", "")
-                                        in_dep = in_seg.get("departing_at", "")
-                                        in_arr = in_seg.get("arriving_at", "")
-                                        
-                                        if out_dep and out_arr and in_dep and in_arr:
-                                            out_dep_time = datetime.fromisoformat(out_dep.replace("Z", "+00:00"))
-                                            out_arr_time = datetime.fromisoformat(out_arr.replace("Z", "+00:00"))
-                                            in_dep_time = datetime.fromisoformat(in_dep.replace("Z", "+00:00"))
-                                            in_arr_time = datetime.fromisoformat(in_arr.replace("Z", "+00:00"))
-                                            
-                                            out_str_time = out_dep_time.strftime("%H:%M")
-                                            out_hour = out_dep_time.hour
-                                            
-                                            earliest_h = int(earliest_outbound.split(":")[0])
-                                            latest_h = int(latest_outbound.split(":")[0])
-                                            
-                                            latest_in_h = int(latest_inbound.split(":")[0])
-                                            latest_in_m = int(latest_inbound.split(":")[1])
-                                            
-                                            out_base_date = datetime.strptime(dt, "%Y-%m-%d").date()
-                                            in_flight_date = in_dep_time.date()
-                                            
-                                            day_offset = (in_flight_date - out_base_date).days
-                                            in_total_mins = (in_dep_time.hour * 60 + in_dep_time.minute) + (day_offset * 1440)
-                                            
-                                            latest_in_total_mins = latest_in_h * 60 + latest_in_m
-                                            if latest_in_h < 6:  # Early morning hours assumed next day boundary
-                                                latest_in_total_mins += 1440
-                                            
-                                            if earliest_h <= out_hour <= latest_h and in_total_mins <= latest_in_total_mins:
-                                                ground_mins = (in_dep_time - out_arr_time).total_seconds() / 60.0
-                                                ground_hrs = ground_mins / 60.0
-                                                
-                                                if ground_hrs >= min_ground and total_price <= max_budget:
-                                                    owner = offer.get("owner", {}).get("name", "Airline")
-                                                    
-                                                    all_cached_trips.append({
-                                                        "home": home_airport,
-                                                        "dest": dest,
-                                                        "Route": f"{home_airport} ➔ {dest} ➔ {home_airport}",
-                                                        "Outbound Date": dt,
-                                                        "Return Date": in_dep_time.strftime("%Y-%m-%d"),
-                                                        "Ground (hrs)": round(ground_hrs, 1),
-                                                        "Total Price (£)": total_price,
-                                                        "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
-                                                        "Return Time": f"{in_dep_time.strftime('%H:%M')} ➔ {in_arr_time.strftime('%H:%M')}",
-                                                        "Carrier": owner,
-                                                        "Offer ID": offer.get("id")
-                                                    })
-                        except Exception:
-                            continue
-                            
-                        completed_calls += 1
-                        progress_bar.progress(min(completed_calls / total_calls, 1.0))
+            if not dates_to_check:
+                st.warning("No dates match your selected departure days within this window.")
+            else:
+                headers = {
+                    "Authorization": f"Bearer {duffel_token}",
+                    "Duffel-Version": "v1",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
                 
-                progress_text.empty()
-                progress_bar.empty()
-                st.session_state.cached_trips = all_cached_trips
+                all_cached_trips = []
+                
+                total_calls = len(destinations) * len(dates_to_check)
+                progress_text = st.empty()
+                progress_bar = st.progress(0)
+                completed_calls = 0
+                
+                with st.spinner(f"Querying live Duffel API across {len(destinations)} destinations and {len(dates_to_check)} dates from {home_airport}..."):
+                    for dest in destinations:
+                        for dt in dates_to_check:
+                            payload = {
+                                "data": {
+                                    "slices": [
+                                        {
+                                            "origin": home_airport,
+                                            "destination": dest,
+                                            "departure_date": dt
+                                        },
+                                        {
+                                            "origin": dest,
+                                            "destination": home_airport,
+                                            "departure_date": dt
+                                        }
+                                    ],
+                                    "passengers": [{"type": "adult"}],
+                                    "cabin_class": "economy",
+                                    "max_connections": 0
+                                }
+                            }
+                            
+                            try:
+                                response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=payload, headers=headers)
+                                if response.status_code == 201:
+                                    data = response.json().get("data", {})
+                                    offers = data.get("offers", [])
+                                    
+                                    for offer in offers:
+                                        total_price = float(offer.get("total_amount", 0))
+                                        currency = offer.get("total_currency", "GBP")
+                                        
+                                        if currency != "GBP":
+                                            continue
+                                            
+                                        slices = offer.get("slices", [])
+                                        if len(slices) == 2:
+                                            out_slice = slices[0]
+                                            in_slice = slices[1]
+                                            
+                                            out_seg = out_slice.get("segments", [{}])[0]
+                                            in_seg = in_slice.get("segments", [{}])[0]
+                                            
+                                            out_dep = out_seg.get("departing_at", "")
+                                            out_arr = out_seg.get("arriving_at", "")
+                                            in_dep = in_seg.get("departing_at", "")
+                                            in_arr = in_seg.get("arriving_at", "")
+                                            
+                                            if out_dep and out_arr and in_dep and in_arr:
+                                                out_dep_time = datetime.fromisoformat(out_dep.replace("Z", "+00:00"))
+                                                out_arr_time = datetime.fromisoformat(out_arr.replace("Z", "+00:00"))
+                                                in_dep_time = datetime.fromisoformat(in_dep.replace("Z", "+00:00"))
+                                                in_arr_time = datetime.fromisoformat(in_arr.replace("Z", "+00:00"))
+                                                
+                                                out_str_time = out_dep_time.strftime("%H:%M")
+                                                out_hour = out_dep_time.hour
+                                                
+                                                earliest_h = int(earliest_outbound.split(":")[0])
+                                                latest_h = int(latest_outbound.split(":")[0])
+                                                
+                                                latest_in_h = int(latest_inbound.split(":")[0])
+                                                latest_in_m = int(latest_inbound.split(":")[1])
+                                                
+                                                out_base_date = datetime.strptime(dt, "%Y-%m-%d").date()
+                                                in_flight_date = in_dep_time.date()
+                                                
+                                                day_offset = (in_flight_date - out_base_date).days
+                                                in_total_mins = (in_dep_time.hour * 60 + in_dep_time.minute) + (day_offset * 1440)
+                                                
+                                                latest_in_total_mins = latest_in_h * 60 + latest_in_m
+                                                if latest_in_h < 6:
+                                                    latest_in_total_mins += 1440
+                                                
+                                                if earliest_h <= out_hour <= latest_h and in_total_mins <= latest_in_total_mins:
+                                                    ground_mins = (in_dep_time - out_arr_time).total_seconds() / 60.0
+                                                    ground_hrs = ground_mins / 60.0
+                                                    
+                                                    if ground_hrs >= min_ground and total_price <= max_budget:
+                                                        owner = offer.get("owner", {}).get("name", "Airline")
+                                                        
+                                                        all_cached_trips.append({
+                                                            "home": home_airport,
+                                                            "dest": dest,
+                                                            "Route": f"{home_airport} ➔ {dest} ➔ {home_airport}",
+                                                            "Outbound Date": dt,
+                                                            "Return Date": in_dep_time.strftime("%Y-%m-%d"),
+                                                            "Ground (hrs)": round(ground_hrs, 1),
+                                                            "Total Price (£)": total_price,
+                                                            "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
+                                                            "Return Time": f"{in_dep_time.strftime('%H:%M')} ➔ {in_arr_time.strftime('%H:%M')}",
+                                                            "Carrier": owner,
+                                                            "Offer ID": offer.get("id")
+                                                        })
+                            except Exception:
+                                continue
+                                
+                            completed_calls += 1
+                            progress_bar.progress(min(completed_calls / total_calls, 1.0))
+                    
+                    progress_text.empty()
+                    progress_bar.empty()
+                    st.session_state.cached_trips = all_cached_trips
 
 if "cached_trips" in st.session_state:
     valid_trips = st.session_state.cached_trips
