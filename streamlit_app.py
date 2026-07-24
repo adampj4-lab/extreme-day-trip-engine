@@ -166,7 +166,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                             return_date_obj = outbound_date_obj + timedelta(days=1)
                             return_dt_str = return_date_obj.strftime("%Y-%m-%d")
 
-                            # Send payload with explicit same-day return first
+                            # Send payload with explicit next-day return date so Duffel pulls return flights landing early the next morning
                             payload = {
                                 "data": {
                                     "slices": [
@@ -178,7 +178,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                         {
                                             "origin": dest,
                                             "destination": home_airport,
-                                            "departure_date": dt
+                                            "departure_date": return_dt_str
                                         }
                                     ],
                                     "passengers": [{"type": "adult"}],
@@ -190,13 +190,6 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                             try:
                                 response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=payload, headers=headers)
                                 
-                                # If 0 offers returned, try explicitly searching with next-day return slice date
-                                if response.status_code == 201:
-                                    data = response.json().get("data", {})
-                                    if not data.get("offers", []):
-                                        payload["data"]["slices"][1]["departure_date"] = return_dt_str
-                                        response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=payload, headers=headers)
-
                                 if response.status_code == 201:
                                     data = response.json().get("data", {})
                                     offers = data.get("offers", [])
@@ -213,7 +206,6 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                             out_slice = slices[0]
                                             in_slice = slices[1]
                                             
-                                            # Validate that both slices are direct (1 segment each)
                                             out_segs = out_slice.get("segments", [])
                                             in_segs = in_slice.get("segments", [])
                                             
@@ -255,7 +247,6 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                                     if latest_in_h < 12:  
                                                         latest_in_allowed_mins += 1440
                                                         
-                                                    # Relaxed validation to ensure safe landing capture
                                                     if in_dep_delta_mins <= latest_in_allowed_mins:
                                                         ground_mins = (in_dep_naive - out_arr_naive).total_seconds() / 60.0
                                                        
@@ -271,7 +262,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                                                 "Ground (hrs)": round(ground_mins / 60.0, 1),
                                                                 "Total Price (£)": total_price,
                                                                 "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
-                                                                "Return Time": f"{in_dep_naive.strftime('%H:%M')} ➔ {in_arr_time.strftime('%H:%M')}",
+                                                                "Return Time": f"{in_dep_naive.strftime('%H:%M')} ➔ {in_arr_naive.strftime('%H:%M')}",
                                                                 "Carrier": owner,
                                                                 "Offer ID": offer.get("id")
                                                             })
