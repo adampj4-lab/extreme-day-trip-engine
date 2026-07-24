@@ -58,13 +58,11 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
     with st.spinner("Generating extreme day trip itineraries..."):
         generated_trips = []
         
-        # Simulated high-speed generator based on your exact rules
         carriers = [("Ryanair", "FR"), ("Jet2", "LS"), ("Aer Lingus", "EI"), ("EasyJet", "U2")]
         
         for home in HOMES:
             for dest in DESTINATIONS:
                 for dt in dates_to_check:
-                    # Randomize realistic day trip schedules matching your parameters
                     out_hour = random.randint(int(earliest_outbound.split(":")[0]), int(latest_outbound.split(":")[0]))
                     out_min = random.choice([0, 15, 30, 45])
                     out_dep_str = f"{out_hour:02d}:{out_min:02d}"
@@ -73,7 +71,6 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                     out_arr_hour = out_hour + flight_dur
                     out_arr_str = f"{out_arr_hour:02d}:{out_min:02d}"
                     
-                    # Ensure ground time respects min_ground
                     ground_dur = random.uniform(min_ground, min_ground + 6.0)
                     total_out_mins = (out_arr_hour * 60) + out_min
                     total_return_mins = total_out_mins + int(ground_dur * 60)
@@ -82,7 +79,6 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                     ret_min = total_return_mins % 60
                     ret_time_str = f"{ret_hour:02d}:{ret_min:02d}"
                     
-                    # Return date (same day or next day if late)
                     ret_date_obj = datetime.strptime(dt, "%Y-%m-%d")
                     if ret_hour < out_hour:
                         ret_date_obj += timedelta(days=1)
@@ -103,11 +99,11 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                         "Total Price (£)": price,
                         "Outbound Time": f"{out_dep_str} ➔ {out_arr_str}",
                         "Return Time": f"{ret_time_str} ➔ {(ret_hour+1)%24:02d}:{ret_min:02d}",
+                        "Out Carrier Name": c_out[0],
                         "Out Carrier": f"{c_out[0]} ({c_out[1]}{random.randint(100,999)})",
                         "In Carrier": f"{c_in[0]} ({c_in[1]}{random.randint(100,999)})"
                     })
         
-        # Filter and sort
         valid_trips = [t for t in generated_trips if t["Total Price (£)"] <= max_budget and t["Ground (hrs)"] >= min_ground]
         
         if sort_option == "Longest ground time first":
@@ -126,7 +122,8 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                     ground_time_val = trip['Ground (hrs)']
                     st.caption(f"⏱️ **{ground_time_val} hours** on the ground")
                 with c2:
-                    st.markdown(f"### £{trip['Total Price (£)']}")
+                    # Formatted with standard Python currency syntax to force proper two decimal places
+                    st.markdown(f"### £{trip['Total Price (£)']:.2f}")
                 
                 st.divider()
                 
@@ -142,12 +139,25 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                 
                 st.divider()
                 
-                # Deep Links to Google Flights & Skyscanner
+                # Deep Links to Aggregators and Direct Airline Search
                 gf_url = f"https://www.google.com/travel/flights?q=Flights%20from%20{trip['home']}%20to%20{trip['dest']}%20on%20{trip['Outbound Date']}%20returning%20on%20{trip['Return Date']}"
                 sk_url = f"https://www.skyscanner.net/transport/flights/{trip['home'].lower()}/{trip['dest'].lower()}/{trip['Outbound Date'].replace('-','')}/{trip['Return Date'].replace('-','')}/"
                 
-                b1, b2 = st.columns(2)
+                # Dynamic direct airline search fallback link
+                carrier_name = trip['Out Carrier Name'].lower()
+                if "jet2" in carrier_name:
+                    airline_url = f"https://www.jet2.com/"
+                elif "ryanair" in carrier_name:
+                    airline_url = f"https://www.ryanair.com/"
+                elif "easyjet" in carrier_name:
+                    airline_url = f"https://www.easyjet.com/"
+                else:
+                    airline_url = f"https://www.aerlingus.com/"
+                
+                b1, b2, b3 = st.columns(3)
                 with b1:
-                    st.link_button("🌐 Search on Google Flights", gf_url, use_container_width=True)
+                    st.link_button("🌐 Google Flights", gf_url, use_container_width=True)
                 with b2:
-                    st.link_button("✈️ Search on Skyscanner", sk_url, use_container_width=True)
+                    st.link_button("✈️ Skyscanner", sk_url, use_container_width=True)
+                with b3:
+                    st.link_button(f"🔗 Book Outbound ({trip['Out Carrier Name']})", airline_url, use_container_width=True)
