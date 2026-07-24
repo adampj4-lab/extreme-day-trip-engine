@@ -90,7 +90,8 @@ end_date_str = col2.text_input("Window End", "2026-08-14")
 st.sidebar.subheader("Time & Constraints")
 earliest_outbound = st.sidebar.text_input("Earliest Outbound", "05:00")
 latest_outbound = st.sidebar.text_input("Latest Outbound", "10:00")
-latest_inbound = st.sidebar.text_input("Latest Coming Home (Return)", "23:59")
+# Allows entering values past midnight like 02:00 to catch red-eyes landing the next calendar morning
+latest_inbound = st.sidebar.text_input("Latest Coming Home (Return)", "02:00")
 
 min_ground = st.sidebar.slider("Min Ground Hours", 4.0, 16.0, 8.0, 0.5)
 
@@ -198,15 +199,23 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                             
                                             out_str_time = out_dep_time.strftime("%H:%M")
                                             out_hour = out_dep_time.hour
-                                            in_hour = in_dep_time.hour
                                             
                                             earliest_h = int(earliest_outbound.split(":")[0])
                                             latest_h = int(latest_outbound.split(":")[0])
+                                            
                                             latest_in_h = int(latest_inbound.split(":")[0])
                                             latest_in_m = int(latest_inbound.split(":")[1])
-                                            latest_in_total_mins = latest_in_h * 60 + latest_in_m
                                             
-                                            in_total_mins = in_dep_time.hour * 60 + in_dep_time.minute
+                                            # Handle next-day early hours window (e.g., 02:00 means up to 2 AM the following morning)
+                                            out_base_date = datetime.strptime(dt, "%Y-%m-%d").date()
+                                            in_flight_date = in_dep_time.date()
+                                            
+                                            day_offset = (in_flight_date - out_base_date).days
+                                            in_total_mins = (in_dep_time.hour * 60 + in_dep_time.minute) + (day_offset * 1440)
+                                            
+                                            latest_in_total_mins = latest_in_h * 60 + latest_in_m
+                                            if latest_in_h < 6:  # If user specifies an early hour like 02:00, treat it as next day morning
+                                                latest_in_total_mins += 1440
                                             
                                             if earliest_h <= out_hour <= latest_h and in_total_mins <= latest_in_total_mins:
                                                 ground_mins = (in_dep_time - out_arr_time).total_seconds() / 60.0
@@ -220,7 +229,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                                         "dest": dest,
                                                         "Route": f"{home_airport} ➔ {dest} ➔ {home_airport}",
                                                         "Outbound Date": dt,
-                                                        "Return Date": dt,
+                                                        "Return Date": in_dep_time.strftime("%Y-%m-%d"),
                                                         "Ground (hrs)": round(ground_hrs, 1),
                                                         "Total Price (£)": total_price,
                                                         "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
