@@ -12,52 +12,57 @@ duffel_token = st.sidebar.text_input("Duffel Access Token", type="password", hel
 
 st.sidebar.header("Trip Parameters")
 
-# Hierarchical Airport Selection: Country -> Airport
+# Hierarchical Airport Selection: Alphabetized Country & Airport Lists
 AIRPORT_HIERARCHY = {
-    "United Kingdom": {
-        "Leeds Bradford (LBA)": "LBA",
-        "Manchester (MAN)": "MAN",
-        "East Midlands (EMA)": "EMA",
-        "Newcastle (NCL)": "NCL",
-        "Liverpool (LPL)": "LPL",
-        "Birmingham (BHX)": "BHX",
-        "London Heathrow (LHR)": "LHR",
-        "London Gatwick (LGW)": "LGW",
-        "London Stansted (STN)": "STN",
-        "Humberside (HUY)": "HUY"
-    },
-    "Ireland": {
-        "Dublin (DUB)": "DUB",
-        "Cork (ORK)": "ORK",
-        "Shannon (SNN)": "SNN"
-    },
-    "Spain": {
-        "Barcelona (BCN)": "BCN",
-        "Malaga (AGP)": "AGP",
-        "Palma de Mallorca (PMI)": "PMI",
-        "Alicante (ALC)": "ALC",
-        "Madrid (MAD)": "MAD"
-    },
-    "Netherlands": {
-        "Amsterdam Schiphol (AMS)": "AMS"
+    "Denmark": {
+        "Copenhagen (CPH)": "CPH"
     },
     "France": {
         "Paris Charles de Gaulle (CDG)": "CDG",
         "Paris Orly (ORY)": "ORY"
     },
-    "Denmark": {
-        "Copenhagen (CPH)": "CPH"
+    "Ireland": {
+        "Cork (ORK)": "ORK",
+        "Dublin (DUB)": "DUB",
+        "Shannon (SNN)": "SNN"
     },
     "Italy": {
         "Milan Malpensa (MXP)": "MXP",
         "Rome Fiumicino (FCO)": "FCO"
+    },
+    "Netherlands": {
+        "Amsterdam Schiphol (AMS)": "AMS"
+    },
+    "Spain": {
+        "Alicante (ALC)": "ALC",
+        "Barcelona (BCN)": "BCN",
+        "Madrid (MAD)": "MAD",
+        "Malaga (AGP)": "AGP",
+        "Palma de Mallorca (PMI)": "PMI"
+    },
+    "United Kingdom": {
+        "Birmingham (BHX)": "BHX",
+        "Doncaster Sheffield (DSA)": "DSA",
+        "East Midlands (EMA)": "EMA",
+        "Humberside (HUY)": "HUY",
+        "Leeds Bradford (LBA)": "LBA",
+        "Liverpool (LPL)": "LPL",
+        "London Gatwick (LGW)": "LGW",
+        "London Heathrow (LHR)": "LHR",
+        "London Stansted (STN)": "STN",
+        "Manchester (MAN)": "MAN",
+        "Newcastle (NCL)": "NCL"
     }
 }
 
-selected_country = st.sidebar.selectbox("Home Country", list(AIRPORT_HIERARCHY.keys()), index=0)
-available_airports = AIRPORT_HIERARCHY[selected_country]
+# Sort countries alphabetically
+sorted_countries = sorted(AIRPORT_HIERARCHY.keys())
+selected_country = st.sidebar.selectbox("Home Country", sorted_countries, index=sorted_countries.index("United Kingdom"))
 
-selected_airport_label = st.sidebar.selectbox("Home Airport", list(available_airports.keys()))
+# Sort airports alphabetically within the selected country
+available_airports = AIRPORT_HIERARCHY[selected_country]
+sorted_airport_labels = sorted(available_airports.keys())
+selected_airport_label = st.sidebar.selectbox("Home Airport", sorted_airport_labels)
 home_airport = available_airports[selected_airport_label]
 
 destinations_input = st.sidebar.text_input("Destination Codes (comma-separated)", "DUB, AMS, BCN, AGP, PMI, ALC, CPH, MXP")
