@@ -33,7 +33,18 @@ latest_return = st.sidebar.text_input("Latest Return Limit", "03:00")
 
 min_ground = st.sidebar.slider("Min Ground Hours", 4.0, 16.0, 8.0, 0.5)
 max_flight = st.sidebar.slider("Max Flight Duration (hrs)", 2.0, 6.0, 4.0, 0.5)
-max_budget = st.sidebar.slider("Max Total Budget (£)", 50.0, 500.0, 200.0, 10.0)
+
+# --- PERSISTENT BUDGET SLIDER VIA SESSION STATE ---
+if "max_budget" not in st.session_state:
+    st.session_state.max_budget = 200.0
+
+max_budget = st.sidebar.slider(
+    "Max Total Budget (£)", 
+    50.0, 500.0, 
+    key="max_budget", 
+    step=10.0
+)
+# ------------------------------------------------
 
 sort_option = st.sidebar.selectbox("Sort Results By", ["Cheapest total price first", "Longest ground time first"])
 weekend_only = st.sidebar.checkbox("Weekends Only (Sat/Sun)", value=False)
@@ -114,8 +125,7 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                             in_flight_date_str = in_seg["departing_at"].split("T")[0]
                             
                             if in_flight_date_str == flight_date:
-                                if in_dep.time() > datetime.strptime("23:59", "%H:%M").time():
-                                    continue
+                                pass
                             elif in_flight_date_str == next_date_str:
                                 if is_next_day_cutoff and in_dep.time() > return_limit:
                                     continue
@@ -148,14 +158,12 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                 for future in as_completed(futures):
                     paired_trips.extend(future.result())
             
-            # --- SIMPLIFIED DEDUPLICATION ---
             unique_trips = {}
             for t in paired_trips:
                 key = (t["Route"], t["Outbound Date"], t["Return Date"], t["Outbound"], t["Return"])
                 if key not in unique_trips or t["Total Price (£)"] < unique_trips[key]["Total Price (£)"]:
                     unique_trips[key] = t
             paired_trips = list(unique_trips.values())
-            # --------------------------------
             
             if sort_option == "Longest ground time first":
                 paired_trips.sort(key=lambda x: x["Ground (hrs)"], reverse=True)
