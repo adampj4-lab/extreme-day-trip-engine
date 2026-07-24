@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import datetime, timedelta
 import random
+import urllib.parse
 
 st.set_page_config(page_title="Extreme Day Trip Engine", layout="wide")
 
@@ -89,6 +90,9 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                     c_out = random.choice(carriers)
                     c_in = random.choice(carriers)
                     
+                    out_flight_code = f"{c_out[1]}{random.randint(100,999)}"
+                    in_flight_code = f"{c_in[1]}{random.randint(100,999)}"
+                    
                     generated_trips.append({
                         "home": home,
                         "dest": dest,
@@ -100,8 +104,10 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                         "Outbound Time": f"{out_dep_str} ➔ {out_arr_str}",
                         "Return Time": f"{ret_time_str} ➔ {(ret_hour+1)%24:02d}:{ret_min:02d}",
                         "Out Carrier Name": c_out[0],
-                        "Out Carrier": f"{c_out[0]} ({c_out[1]}{random.randint(100,999)})",
-                        "In Carrier": f"{c_in[0]} ({c_in[1]}{random.randint(100,999)})"
+                        "Out Flight Code": out_flight_code,
+                        "In Flight Code": in_flight_code,
+                        "Out Carrier": f"{c_out[0]} ({out_flight_code})",
+                        "In Carrier": f"{c_in[0]} ({in_flight_code})"
                     })
         
         valid_trips = [t for t in generated_trips if t["Total Price (£)"] <= max_budget and t["Ground (hrs)"] >= min_ground]
@@ -122,7 +128,6 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                     ground_time_val = trip['Ground (hrs)']
                     st.caption(f"⏱️ **{ground_time_val} hours** on the ground")
                 with c2:
-                    # Formatted with standard Python currency syntax to force proper two decimal places
                     st.markdown(f"### £{trip['Total Price (£)']:.2f}")
                 
                 st.divider()
@@ -139,25 +144,26 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                 
                 st.divider()
                 
-                # Deep Links to Aggregators and Direct Airline Search
-                gf_url = f"https://www.google.com/travel/flights?q=Flights%20from%20{trip['home']}%20to%20{trip['dest']}%20on%20{trip['Outbound Date']}%20returning%20on%20{trip['Return Date']}"
-                sk_url = f"https://www.skyscanner.net/transport/flights/{trip['home'].lower()}/{trip['dest'].lower()}/{trip['Outbound Date'].replace('-','')}/{trip['Return Date'].replace('-','')}/"
+                # Enhanced Deep Links with specific flight numbers and codes for precision targeting
+                gf_query = f"Flights from {trip['home']} to {trip['dest']} on {trip['Outbound Date']} returning on {trip['Return Date']} flight {trip['Out Flight Code']} {trip['In Flight Code']}"
+                gf_url = f"https://www.google.com/travel/flights?q={urllib.parse.quote(gf_query)}"
                 
-                # Dynamic direct airline search fallback link
+                sk_url = f"https://www.skyscanner.net/transport/flights/{trip['home'].lower()}/{trip['dest'].lower()}/{trip['Outbound Date'].replace('-','')}/{trip['Return Date'].replace('-','')}/?adults=1&cabinclass=economy"
+                
                 carrier_name = trip['Out Carrier Name'].lower()
                 if "jet2" in carrier_name:
-                    airline_url = f"https://www.jet2.com/"
+                    airline_url = "https://www.jet2.com/"
                 elif "ryanair" in carrier_name:
-                    airline_url = f"https://www.ryanair.com/"
+                    airline_url = "https://www.ryanair.com/"
                 elif "easyjet" in carrier_name:
-                    airline_url = f"https://www.easyjet.com/"
+                    airline_url = "https://www.easyjet.com/"
                 else:
-                    airline_url = f"https://www.aerlingus.com/"
+                    airline_url = "https://www.aerlingus.com/"
                 
                 b1, b2, b3 = st.columns(3)
                 with b1:
-                    st.link_button("🌐 Google Flights", gf_url, use_container_width=True)
+                    st.link_button("🌐 Google Flights (Targeted)", gf_url, use_container_width=True)
                 with b2:
                     st.link_button("✈️ Skyscanner", sk_url, use_container_width=True)
                 with b3:
-                    st.link_button(f"🔗 Book Outbound ({trip['Out Carrier Name']})", airline_url, use_container_width=True)
+                    st.link_button(f"🔗 {trip['Out Carrier Name']} Direct", airline_url, use_container_width=True)
