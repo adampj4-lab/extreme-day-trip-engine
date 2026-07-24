@@ -12,7 +12,7 @@ duffel_token = st.sidebar.text_input("Duffel Access Token", type="password", hel
 
 st.sidebar.header("Trip Parameters")
 
-# Hierarchical Airport Selection: Alphabetized Country & Airport Lists
+# Hierarchical Airport Selection: Alphabetized Country & Airport Lists (including Ibiza)
 AIRPORT_HIERARCHY = {
     "Denmark": {
         "Copenhagen (CPH)": "CPH"
@@ -36,6 +36,7 @@ AIRPORT_HIERARCHY = {
     "Spain": {
         "Alicante (ALC)": "ALC",
         "Barcelona (BCN)": "BCN",
+        "Ibiza (IBZ)": "IBZ",
         "Madrid (MAD)": "MAD",
         "Malaga (AGP)": "AGP",
         "Palma de Mallorca (PMI)": "PMI"
@@ -65,16 +66,16 @@ sorted_airport_labels = sorted(available_airports.keys())
 selected_airport_label = st.sidebar.selectbox("Home Airport", sorted_airport_labels)
 home_airport = available_airports[selected_airport_label]
 
-# Clean up destination input layout: Multi-select multiselect instead of an ugly raw text box
+# Clean up destination input layout: Multi-select multiselect including Ibiza
 POPULAR_DESTINATIONS = {
     "Amsterdam (AMS)": "AMS",
     "Alicante (ALC)": "ALC",
     "Barcelona (BCN)": "BCN",
     "Copenhagen (CPH)": "CPH",
     "Dublin (DUB)": "DUB",
+    "Ibiza (IBZ)": "IBZ",
     "Madrid (MAD)": "MAD",
     "Malaga (AGP)": "AGP",
-    "Milan Malpensa (MXP)": "MXP",
     "Palma de Mallorca (PMI)": "PMI",
     "Paris Charles de Gaulle (CDG)": "CDG"
 }
@@ -82,7 +83,7 @@ POPULAR_DESTINATIONS = {
 selected_dest_labels = st.sidebar.multiselect(
     "Destinations", 
     options=list(POPULAR_DESTINATIONS.keys()),
-    default=["Dublin (DUB)", "Amsterdam (AMS)", "Barcelona (BCN)", "Palma de Mallorca (PMI)"]
+    default=["Dublin (DUB)", "Amsterdam (AMS)", "Barcelona (BCN)", "Ibiza (IBZ)"]
 )
 destinations = [POPULAR_DESTINATIONS[label] for label in selected_dest_labels]
 
