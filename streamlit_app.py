@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime, date
+from datetime import datetime, timedelta, date
 import requests
 
 st.set_page_config(page_title="Extreme Day Trip Engine (Live)", layout="wide")
@@ -12,7 +12,6 @@ duffel_token = st.sidebar.text_input("Duffel Access Token", type="password", hel
 
 st.sidebar.header("Trip Parameters")
 
-# Simplified targeted test controls for LBA to DUB on Aug 2nd, 2026
 home_airport = "LBA"
 dest = "DUB"
 search_date = date(2026, 8, 2)
@@ -39,7 +38,6 @@ if st.sidebar.button("Test Direct LBA-DUB Fetch 🚀", type="primary"):
         found_trips = []
         
         with st.spinner("Executing independent one-way lookups for LBA -> DUB and DUB -> LBA..."):
-            # Fetch Outbound
             out_payload = {
                 "data": {
                     "slices": [{
@@ -76,7 +74,6 @@ if st.sidebar.button("Test Direct LBA-DUB Fetch 🚀", type="primary"):
                     out_dep_time = datetime.fromisoformat(out_dep.replace("Z", "+00:00"))
                     out_arr_time = datetime.fromisoformat(out_arr.replace("Z", "+00:00"))
                     
-                    # Fetch Inbound for same day and next day
                     for ret_dt in [dt_str, next_dt_str]:
                         ret_payload = {
                             "data": {
