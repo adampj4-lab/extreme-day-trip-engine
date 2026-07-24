@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import time
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -34,7 +35,6 @@ latest_return = st.sidebar.text_input("Latest Return Limit", "03:00")
 min_ground = st.sidebar.slider("Min Ground Hours", 4.0, 16.0, 8.0, 0.5)
 max_flight = st.sidebar.slider("Max Flight Duration (hrs)", 2.0, 6.0, 4.0, 0.5)
 
-# --- PERSISTENT BUDGET SLIDER VIA SESSION STATE ---
 if "max_budget" not in st.session_state:
     st.session_state.max_budget = 200.0
 
@@ -44,7 +44,6 @@ max_budget = st.sidebar.slider(
     key="max_budget", 
     step=10.0
 )
-# ------------------------------------------------
 
 sort_option = st.sidebar.selectbox("Sort Results By", ["Cheapest total price first", "Longest ground time first"])
 weekend_only = st.sidebar.checkbox("Weekends Only (Sat/Sun)", value=False)
@@ -82,6 +81,7 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                 in_payload_next = {"data": {"slices": [{"origin": dest, "destination": home, "departure_date": next_date_str}], "passengers": [{"type": "adult"}], "cabin_class": "economy"}}
                 
                 try:
+                    time.sleep(0.05) # Gentle pacing to prevent rate-limit dropping
                     out_resp = requests.post(url, headers=headers, json=out_payload, timeout=20)
                     in_resp_same = requests.post(url, headers=headers, json=in_payload_same, timeout=20)
                     in_resp_next = requests.post(url, headers=headers, json=in_payload_next, timeout=20)
@@ -153,7 +153,8 @@ if st.sidebar.button("Run Engine 🚀", type="primary"):
                 return local_trips
 
             tasks = [(h, d, dt) for h in HOMES for d in DESTINATIONS for dt in dates_to_check]
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            # Lower max_workers to 4 to prevent overwhelming Duffel's connection limits on wide searches
+            with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = [executor.submit(fetch_route_offers, h, d, dt) for h, d, dt in tasks]
                 for future in as_completed(futures):
                     paired_trips.extend(future.result())
