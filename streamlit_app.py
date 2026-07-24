@@ -166,7 +166,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                             return_date_obj = outbound_date_obj + timedelta(days=1)
                             return_dt_str = return_date_obj.strftime("%Y-%m-%d")
 
-                            # FIX: Requesting a 2-day range payload structure or evaluating segment dates independently
+                            # Send payload with explicit same-day return first
                             payload = {
                                 "data": {
                                     "slices": [
@@ -178,7 +178,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                         {
                                             "origin": dest,
                                             "destination": home_airport,
-                                            "departure_date": dt  # Try exact date first to match airline multi-city inventory, fallback to next day if needed
+                                            "departure_date": dt
                                         }
                                     ],
                                     "passengers": [{"type": "adult"}],
@@ -190,7 +190,7 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                             try:
                                 response = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=payload, headers=headers)
                                 
-                                # If exact same-day query returns nothing or fails, try querying with the next-day return date explicitly
+                                # If 0 offers returned, try explicitly searching with next-day return slice date
                                 if response.status_code == 201:
                                     data = response.json().get("data", {})
                                     if not data.get("offers", []):
@@ -213,8 +213,15 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                             out_slice = slices[0]
                                             in_slice = slices[1]
                                             
-                                            out_seg = out_slice.get("segments", [{}])[0]
-                                            in_seg = in_slice.get("segments", [{}])[0]
+                                            # Validate that both slices are direct (1 segment each)
+                                            out_segs = out_slice.get("segments", [])
+                                            in_segs = in_slice.get("segments", [])
+                                            
+                                            if len(out_segs) != 1 or len(in_segs) != 1:
+                                                continue
+                                                
+                                            out_seg = out_segs[0]
+                                            in_seg = in_segs[0]
                                             
                                             out_dep = out_seg.get("departing_at", "")
                                             out_arr = out_seg.get("arriving_at", "")
@@ -239,14 +246,18 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                                 # Check outbound window
                                                 if earliest_h <= out_hour <= latest_h:
                                                     out_base_datetime = datetime.combine(outbound_date_obj, datetime.min.time())
-                                                    in_dep_delta_mins = (in_dep_time.replace(tzinfo=None) - out_base_datetime).total_seconds() / 60.0
+                                                    in_dep_naive = in_dep_time.replace(tzinfo=None)
+                                                    out_arr_naive = out_arr_time.replace(tzinfo=None)
+                                                    
+                                                    in_dep_delta_mins = (in_dep_naive - out_base_datetime).total_seconds() / 60.0
                                                     
                                                     latest_in_allowed_mins = latest_in_h * 60 + latest_in_m
                                                     if latest_in_h < 12:  
                                                         latest_in_allowed_mins += 1440
                                                         
+                                                    # Relaxed validation to ensure safe landing capture
                                                     if in_dep_delta_mins <= latest_in_allowed_mins:
-                                                        ground_mins = (in_dep_time.replace(tzinfo=None) - out_arr_time.replace(tzinfo=None)).total_seconds() / 60.0
+                                                        ground_mins = (in_dep_naive - out_arr_naive).total_seconds() / 60.0
                                                        
                                                         if ground_mins >= (min_ground * 60) and total_price <= max_budget:
                                                             owner = offer.get("owner", {}).get("name", "Airline")
@@ -256,11 +267,11 @@ if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
                                                                 "dest": dest,
                                                                 "Route": f"{home_airport} ➔ {dest} ➔ {home_airport}",
                                                                 "Outbound Date": dt,
-                                                                "Return Date": in_dep_time.strftime("%Y-%m-%d"),
+                                                                "Return Date": in_dep_naive.strftime("%Y-%m-%d"),
                                                                 "Ground (hrs)": round(ground_mins / 60.0, 1),
                                                                 "Total Price (£)": total_price,
                                                                 "Outbound Time": f"{out_str_time} ➔ {out_arr_time.strftime('%H:%M')}",
-                                                                "Return Time": f"{in_dep_time.strftime('%H:%M')} ➔ {in_arr_time.strftime('%H:%M')}",
+                                                                "Return Time": f"{in_dep_naive.strftime('%H:%M')} ➔ {in_arr_time.strftime('%H:%M')}",
                                                                 "Carrier": owner,
                                                                 "Offer ID": offer.get("id")
                                                             })
