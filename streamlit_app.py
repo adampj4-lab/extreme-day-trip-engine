@@ -65,12 +65,31 @@ sorted_airport_labels = sorted(available_airports.keys())
 selected_airport_label = st.sidebar.selectbox("Home Airport", sorted_airport_labels)
 home_airport = available_airports[selected_airport_label]
 
-destinations_input = st.sidebar.text_input("Destination Codes (comma-separated)", "DUB, AMS, BCN, AGP, PMI, ALC, CPH, MXP")
-destinations = [d.strip().upper() for d in destinations_input.split(",") if d.strip()]
+# Clean up destination input layout: Multi-select multiselect instead of an ugly raw text box
+POPULAR_DESTINATIONS = {
+    "Amsterdam (AMS)": "AMS",
+    "Alicante (ALC)": "ALC",
+    "Barcelona (BCN)": "BCN",
+    "Copenhagen (CPH)": "CPH",
+    "Dublin (DUB)": "DUB",
+    "Madrid (MAD)": "MAD",
+    "Malaga (AGP)": "AGP",
+    "Milan Malpensa (MXP)": "MXP",
+    "Palma de Mallorca (PMI)": "PMI",
+    "Paris Charles de Gaulle (CDG)": "CDG"
+}
 
+selected_dest_labels = st.sidebar.multiselect(
+    "Destinations", 
+    options=list(POPULAR_DESTINATIONS.keys()),
+    default=["Dublin (DUB)", "Amsterdam (AMS)", "Barcelona (BCN)", "Palma de Mallorca (PMI)"]
+)
+destinations = [POPULAR_DESTINATIONS[label] for label in selected_dest_labels]
+
+# Side-by-side date inputs properly aligned
 col1, col2 = st.sidebar.columns(2)
 start_date_str = col1.text_input("Start Date", "2026-08-01")
-end_date_str = col2.text_input("Max 14-Day Window End", "2026-08-14")
+end_date_str = col2.text_input("Window End", "2026-08-14")
 
 st.sidebar.subheader("Time & Constraints")
 earliest_outbound = st.sidebar.text_input("Earliest Outbound", "05:00")
@@ -95,6 +114,8 @@ st.sidebar.info("🔒 Enforcing **Direct Flights Only** and **1 Adult**.")
 if st.sidebar.button("Fetch Live Fares 🚀", type="primary"):
     if not duffel_token:
         st.error("Please provide your Duffel Access Token in the sidebar.")
+    elif not destinations:
+        st.error("Please select at least one destination.")
     else:
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
