@@ -25,9 +25,10 @@ if st.sidebar.button("Test Direct LBA-DUB Fetch 🚀", type="primary"):
     if not duffel_token:
         st.error("Please provide your Duffel Access Token in the sidebar.")
     else:
+        # CRITICAL FIX: Duffel deprecated 'v1' API header format. Updated to current supported API version format 'v2'.
         headers = {
             "Authorization": f"Bearer {duffel_token}",
-            "Duffel-Version": "v1",
+            "Duffel-Version": "v2",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
@@ -46,8 +47,7 @@ if st.sidebar.button("Test Direct LBA-DUB Fetch 🚀", type="primary"):
                         "departure_date": dt_str
                     }],
                     "passengers": [{"type": "adult"}],
-                    "cabin_class": "economy",
-                    "max_connections": 0
+                    "cabin_class": "economy"
                 }
             }
             
@@ -83,8 +83,7 @@ if st.sidebar.button("Test Direct LBA-DUB Fetch 🚀", type="primary"):
                                     "departure_date": ret_dt
                                 }],
                                 "passengers": [{"type": "adult"}],
-                                "cabin_class": "economy",
-                                "max_connections": 0
+                                "cabin_class": "economy"
                             }
                         }
                         
