@@ -2,15 +2,15 @@ import streamlit as st
 from datetime import date
 import requests
 
-st.set_page_config(page_title="Extreme Day Trip Engine - Independent Scan", layout="wide")
+st.set_page_config(page_title="LBA-DUB Force Fetch", layout="wide")
 
-st.title("✈️ Extreme Day Trip Engine — Independent One-Way Splitter")
-st.markdown("Bypassing round-trip bundle constraints to inspect raw independent carrier availability.")
+st.title("✈️ LBA ➔ DUB Targeted Diagnostic")
+st.markdown("Forcing a clean, unconstrained query specifically for Dublin to catch the budget fares.")
 
 st.sidebar.header("API Configuration")
 duffel_token = st.sidebar.text_input("Duffel Access Token", type="password")
 
-if st.sidebar.button("Run Independent One-Way Scan 🔍", type="primary"):
+if st.sidebar.button("Run Dublin Targeted Scan 🔍", type="primary"):
     if not duffel_token:
         st.error("Please provide your Duffel Access Token.")
     else:
@@ -21,62 +21,55 @@ if st.sidebar.button("Run Independent One-Way Scan 🔍", type="primary"):
             "Accept": "application/json"
         }
         
-        dt_str = "2026-08-02"
-        
-        # Query Outbound LBA -> DUB independently
-        out_payload = {
+        # Exact same-day payload for LBA-DUB on August 2, 2026
+        payload = {
             "data": {
-                "slices": [{"origin": "LBA", "destination": "DUB", "departure_date": dt_str}],
+                "slices": [
+                    {
+                        "origin": "LBA",
+                        "destination": "DUB",
+                        "departure_date": "2026-08-02"
+                    },
+                    {
+                        "origin": "DUB",
+                        "destination": "LBA",
+                        "departure_date": "2026-08-02"
+                    }
+                ],
                 "passengers": [{"type": "adult"}],
                 "cabin_class": "economy"
             }
         }
         
-        # Query Inbound DUB -> LBA independently
-        ret_payload = {
-            "data": {
-                "slices": [{"origin": "DUB", "destination": "LBA", "departure_date": dt_str}],
-                "passengers": [{"type": "adult"}],
-                "cabin_class": "economy"
-            }
-        }
-        
-        with st.spinner("Fetching separate one-way feeds..."):
+        with st.spinner("Querying Duffel for LBA-DUB..."):
             try:
-                out_resp = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=out_payload, headers=headers)
-                ret_resp = requests.post("https://api.duffel.com/air/offer_requests?return_offers=true", json=ret_payload, headers=headers)
+                response = requests.post(
+                    "https://api.duffel.com/air/offer_requests?return_offers=true",
+                    json=payload,
+                    headers=headers
+                )
                 
-                col_a, col_b = st.columns(2)
-                
-                with col_a:
-                    st.subheader("Outbound: LBA ➔ DUB")
-                    if out_resp.status_code == 201:
-                        out_offers = out_resp.json().get("data", {}).get("offers", [])
-                        st.write(f"Found {len(out_offers)} one-way offers.")
-                        for o in out_offers:
-                            carrier = o.get("owner", {}).get("name")
-                            price = o.get("total_amount")
-                            seg = o.get("slices", [{}])[0].get("segments", [{}])[0]
-                            dep = seg.get("departing_at", "")[11:16]
-                            arr = seg.get("arriving_at", "")[11:16]
-                            st.markdown(f"- **{carrier}**: {dep} ➔ {arr} (**£{price}**)")
-                    else:
-                        st.error(out_resp.text)
+                if response.status_code == 201:
+                    data = response.json().get("data", {})
+                    offers = data.get("offers", [])
+                    st.success(f"API returned {len(offers)} total offers for Dublin.")
+                    
+                    for idx, o in enumerate(offers):
+                        carrier = o.get("owner", {}).get("name", "Unknown")
+                        price = o.get("total_amount")
+                        currency = o.get("total_currency", "GBP")
                         
-                with col_b:
-                    st.subheader("Return: DUB ➔ LBA")
-                    if ret_resp.status_code == 201:
-                        ret_offers = ret_resp.json().get("data", {}).get("offers", [])
-                        st.write(f"Found {len(ret_offers)} one-way offers.")
-                        for o in ret_offers:
-                            carrier = o.get("owner", {}).get("name")
-                            price = o.get("total_amount")
-                            seg = o.get("slices", [{}])[0].get("segments", [{}])[0]
-                            dep = seg.get("departing_at", "")[11:16]
-                            arr = seg.get("arriving_at", "")[11:16]
-                            st.markdown(f"- **{carrier}**: {dep} ➔ {arr} (**£{price}**)")
-                    else:
-                        st.error(ret_resp.text)
+                        slices = o.get("slices", [])
+                        out_seg = slices[0].get("segments", [{}])[0] if len(slices) > 0 else {}
+                        ret_seg = slices[1].get("segments", [{}])[0] if len(slices) > 1 else {}
                         
+                        out_dep = out_seg.get("departing_at", "")[:16].replace("T", " ")
+                        ret_dep = ret_seg.get("departing_at", "")[:16].replace("T", " ")
+                        
+                        with st.container(border=True):
+                            st.markdown(f"**Offer #{idx+1} — {carrier}** | Price: **{currency} {price}**")
+                            st.write(f"Outbound: {out_dep} | Return: {ret_dep}")
+                else:
+                    st.error(f"API Error [{response.status_code}]: {response.text}")
             except Exception as e:
                 st.error(f"Exception: {e}")
