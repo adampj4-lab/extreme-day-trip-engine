@@ -2,15 +2,20 @@ import streamlit as st
 from datetime import date
 import requests
 
-st.set_page_config(page_title="LBA-DUB Force Fetch", layout="wide")
+st.set_page_config(page_title="Extreme Day Trip Engine - Direct Debugger", layout="wide")
 
-st.title("✈️ LBA ➔ DUB Targeted Diagnostic")
-st.markdown("Forcing a clean, unconstrained query specifically for Dublin to catch the budget fares.")
+st.title("✈️ Extreme Day Trip Engine — Unfiltered Inventory Inspector")
+st.markdown("Pulling raw multi-slice offers directly from Duffel with zero filtering.")
 
 st.sidebar.header("API Configuration")
 duffel_token = st.sidebar.text_input("Duffel Access Token", type="password")
 
-if st.sidebar.button("Run Dublin Targeted Scan 🔍", type="primary"):
+st.sidebar.header("Parameters")
+origin = st.sidebar.text_input("Origin", value="LBA")
+destination = st.sidebar.text_input("Destination", value="DUB")
+trip_date = st.sidebar.date_input("Date", value=date(2026, 8, 2))
+
+if st.sidebar.button("Fetch Raw Unfiltered Feed 🔍", type="primary"):
     if not duffel_token:
         st.error("Please provide your Duffel Access Token.")
     else:
@@ -21,19 +26,21 @@ if st.sidebar.button("Run Dublin Targeted Scan 🔍", type="primary"):
             "Accept": "application/json"
         }
         
-        # Exact same-day payload for LBA-DUB on August 2, 2026
+        dt_str = trip_date.strftime("%Y-%m-%d")
+        
+        # Standard multi-slice payload matching the exact structure that previously worked
         payload = {
             "data": {
                 "slices": [
                     {
-                        "origin": "LBA",
-                        "destination": "DUB",
-                        "departure_date": "2026-08-02"
+                        "origin": origin.upper(),
+                        "destination": destination.upper(),
+                        "departure_date": dt_str
                     },
                     {
-                        "origin": "DUB",
-                        "destination": "LBA",
-                        "departure_date": "2026-08-02"
+                        "origin": destination.upper(),
+                        "destination": origin.upper(),
+                        "departure_date": dt_str
                     }
                 ],
                 "passengers": [{"type": "adult"}],
@@ -41,7 +48,7 @@ if st.sidebar.button("Run Dublin Targeted Scan 🔍", type="primary"):
             }
         }
         
-        with st.spinner("Querying Duffel for LBA-DUB..."):
+        with st.spinner("Querying Duffel API..."):
             try:
                 response = requests.post(
                     "https://api.duffel.com/air/offer_requests?return_offers=true",
@@ -50,25 +57,19 @@ if st.sidebar.button("Run Dublin Targeted Scan 🔍", type="primary"):
                 )
                 
                 if response.status_code == 201:
-                    data = response.json().get("data", {})
-                    offers = data.get("offers", [])
-                    st.success(f"API returned {len(offers)} total offers for Dublin.")
+                    res_json = response.json()
+                    offers = res_json.get("data", {}).get("offers", [])
                     
-                    for idx, o in enumerate(offers):
-                        carrier = o.get("owner", {}).get("name", "Unknown")
-                        price = o.get("total_amount")
-                        currency = o.get("total_currency", "GBP")
-                        
-                        slices = o.get("slices", [])
-                        out_seg = slices[0].get("segments", [{}])[0] if len(slices) > 0 else {}
-                        ret_seg = slices[1].get("segments", [{}])[0] if len(slices) > 1 else {}
-                        
-                        out_dep = out_seg.get("departing_at", "")[:16].replace("T", " ")
-                        ret_dep = ret_seg.get("departing_at", "")[:16].replace("T", " ")
+                    st.success(f"Success! Total offers returned: {len(offers)}")
+                    
+                    for idx, offer in enumerate(offers):
+                        carrier = offer.get("owner", {}).get("name", "Unknown Carrier")
+                        price = offer.get("total_amount")
+                        currency = offer.get("total_currency", "GBP")
                         
                         with st.container(border=True):
-                            st.markdown(f"**Offer #{idx+1} — {carrier}** | Price: **{currency} {price}**")
-                            st.write(f"Outbound: {out_dep} | Return: {ret_dep}")
+                            st.markdown(f"**#{idx+1} — {carrier}** | **{currency} {price}**")
+                            st.json(offer)
                 else:
                     st.error(f"API Error [{response.status_code}]: {response.text}")
             except Exception as e:
